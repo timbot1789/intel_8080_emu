@@ -24,25 +24,31 @@ struct Processor {
     sp: u16,
     pc: u16,
     conditions: ConditionBits,
-    memory: Vec<u8>
+    halt: bool,
+    memory: Vec<u8>,
 }
 
 impl Processor {
 
     fn unimplemented_instruction(&mut self) {
-        println!("Error: Unimplemented Instruction\n");
+        println!("Error: Unimplemented Instruction: {}\n", self.memory[self.pc as usize]);
         self.pc += 1;
     }
 
     fn lxi(&mut self, opcode: u8) {
-        println!("lxi");
-        let reg_pair = opcode >> 3;
+        let reg_pair = opcode >> 4;
+        println!("lxi {:x}, {:x}{:x}", reg_pair, self.memory[(self.pc + 1) as usize], self.memory[(self.pc + 2) as usize]);
         self.set_register_pair(
             reg_pair, 
             self.memory[(self.pc + 1) as usize], 
             self.memory[(self.pc + 2) as usize]
         );
-        self.pc += 2;
+        self.pc += 3;
+    }
+
+    fn halt(&mut self) {
+        println!("halt");
+        self.halt = true;
     }
 
     fn set_register(&mut self, reg: u8, value: u8) {
@@ -87,7 +93,7 @@ impl Processor {
     fn run_one_command(&mut self) {
         let opcode: u8 = self.memory[self.pc as usize];
         return match opcode {
-            0x00 => println!("NOP"),
+            0x00 => (|| {println!("NOP"); self.pc += 1})(),
             0x01 | 0x11 | 0x21 | 0x31 => self.lxi(opcode),
             0x02 => self.unimplemented_instruction(),
             0x12 => self.unimplemented_instruction(),
@@ -142,7 +148,7 @@ impl Processor {
             0x3a => self.unimplemented_instruction(),
             0x3f => self.unimplemented_instruction(),
             0x40..=0x75 => self.unimplemented_instruction(),
-            0x76 => self.unimplemented_instruction(),
+            0x76 => self.halt(),
             0x77 => self.unimplemented_instruction(),
             0x78..=0x7f => self.unimplemented_instruction(),
             0x80..=0x87 => self.unimplemented_instruction(),
@@ -224,12 +230,12 @@ fn main() {
 
     let mut processor: Processor = Processor { ..Default::default()};
 
-    processor.memory = fs::read(file_path)
-        .expect("Should have been able to read the file");
+    processor.memory.extend_from_slice(&fs::read(file_path)
+        .expect("Should have been able to read the file"));
+    println!("{:#?}", processor.memory);
+    processor.memory.resize_with(0xffff, || {0});
 
-    let mut processor: Processor = Processor { ..Default::default()};
-
-    while processor.pc < processor.memory.len() as u16 {
+    while (processor.pc < processor.memory.len() as u16) && !processor.halt {
         processor.run_one_command();
     }
 
