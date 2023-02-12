@@ -110,11 +110,14 @@ impl Processor {
 
     fn store_to_memory(&mut self, value: u8) -> (){
         let addr = self.get_mem_addr();
+        println!("Storing value: 0x{:02x} to memory address: 0x{:04x}", value, addr);
         self.memory[addr as usize] = value;
     }
 
     fn load_from_memory(&mut self) -> u8 {
         let addr = self.get_mem_addr();
+        let value = self.memory[addr as usize];
+        println!("Loading value: 0x{:02x} from memory address: 0x{:04x}", value, addr);
         return self.memory[addr as usize];
     }
 
