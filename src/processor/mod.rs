@@ -3,11 +3,11 @@ use std::fs;
 #[derive(Debug)]
 #[derive(Default)]
 struct ConditionBits {
-    carry: u8, // set if value is carried out of the highest order bit
+    carry: bool, // set if value is carried out of the highest order bit
     // aux_carry: u8, Not used for this project
-    sign: u8, // set to 1 when bit 7 is set
-    zero: u8, // set when result is equal to 0
-    parity: u8 // set when result is even
+    sign: bool, // set to 1 when bit 7 is set
+    zero: bool, // set when result is equal to 0
+    parity: bool // set when result is even
 }
 
 #[derive(Debug)]
@@ -107,7 +107,12 @@ impl Processor {
         println!("inr {:x}", reg_code);
 
         let register = self.get_register(reg_code);
-        *register += 1;
+        let cur_val: u16 = (*register as u16) + 1;
+        *register = (cur_val & 0x00ff) as u8;
+        self.conditions.sign = (cur_val >> 7) != 0;
+        self.conditions.zero = cur_val == 0;
+        self.conditions.parity = cur_val % 2 == 0;
+        self.conditions.carry = (cur_val >> 8) > 0;
         self.pc += 1;
     }
 
