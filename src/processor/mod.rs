@@ -111,11 +111,31 @@ impl Processor {
         self.pc += 1;
     }
 
+    fn inx(&mut self, opcode: u8) {
+        let reg_pair = (opcode >> 4) & 0b1100;
+        let mut pair_val = self.get_register_pair_value(reg_pair);
+        pair_val += 1;
+        let low_byte: u8 = (pair_val >> 8) as u8;
+        let high_byte: u8 = (pair_val & 0xff) as u8;
+        self.set_register_pair(reg_pair, low_byte, high_byte);
+        self.pc += 1;
+    }
+
     fn dcr(&mut self, opcode: u8) {
         let reg_code: u8 = opcode >> 3;
 
         let register = self.get_register(reg_code);
         *register -= 1;
+        self.pc += 1;
+    }
+
+    fn dcx(&mut self, opcode: u8) {
+        let reg_pair = (opcode >> 4) & 0b1100;
+        let mut pair_val = self.get_register_pair_value(reg_pair);
+        pair_val -= 1;
+        let low_byte: u8 = (pair_val >> 8) as u8;
+        let high_byte: u8 = (pair_val & 0xff) as u8;
+        self.set_register_pair(reg_pair, low_byte, high_byte);
         self.pc += 1;
     }
 
@@ -134,25 +154,57 @@ impl Processor {
         }
     }
 
-    fn set_register_pair(&mut self, reg_pair: u8, first_byte: u8, second_byte: u8) {
+    fn get_register_pair_value(&mut self, reg_pair: u8) -> u16{
+        let mut high_byte: u16 = 0;
+        let mut low_byte: u16 = 0;
+        let mut sp_addr: u16 = 0;
+        
+        match reg_pair {
+            0 => (|| {
+                    low_byte = self.b as u16;
+                    high_byte = self.c as u16;
+                })(),
+            1 => (|| {
+                    low_byte = self.d as u16;
+                    high_byte = self.e as u16;
+                })(),
+            2 => (|| {
+                    low_byte = self.h as u16;
+                    high_byte = self.l as u16;
+                })(),
+            3 => (|| {
+                    sp_addr = self.sp;
+                })(),
+            _ => (),
+        }
+
+        return if reg_pair == 3 {
+            sp_addr
+        } else {
+            (high_byte << 8) | low_byte
+        };
+    }
+
+
+    fn set_register_pair(&mut self, reg_pair: u8, low_byte: u8, high_byte: u8) {
 
         match reg_pair {
             0 => (|| {
-                    self.b = second_byte;
-                    self.c = first_byte;
+                    self.b = high_byte;
+                    self.c = low_byte;
                 })(),
             1 => (|| {
-                    self.d = second_byte;
-                    self.e = first_byte
+                    self.d = high_byte;
+                    self.e = low_byte
                 })(),
             2 => (|| {
-                    self.h = second_byte;
-                    self.l = first_byte;
+                    self.h = high_byte;
+                    self.l = low_byte;
                 })(),
             3 => (|| {
-                    let mut sp_addr : u16 = second_byte as u16;
+                    let mut sp_addr : u16 = high_byte as u16;
                     sp_addr = sp_addr << 8;
-                    sp_addr = sp_addr | first_byte as u16;
+                    sp_addr = sp_addr | low_byte as u16;
                     self.sp = sp_addr
                 })(),
             _ => (),
@@ -166,23 +218,17 @@ impl Processor {
             0x01 | 0x11 | 0x21 | 0x31 => self.lxi(opcode),
             0x06 | 0x0e | 0x16 | 0x1e | 0x26 | 0x2e | 0x36 | 0x3e => self.mvi(opcode),
             0x12 => self.unimplemented_instruction(),
-            0x03 => self.unimplemented_instruction(),
-            0x13 => self.unimplemented_instruction(),
-            0x23 => self.unimplemented_instruction(),
-            0x33 => self.unimplemented_instruction(),
+            0x03 | 0x13 | 0x23 | 0x33=> self.inx(opcode),
             0x04 | 0x0c |0x14 | 0x1c | 0x24 | 0x2c | 0x34 | 0x3c => self.inr(opcode),
             0x05 | 0x0d |0x15 | 0x1d | 0x25 | 0x2d | 0x35 | 0x3d => self.dcr(opcode),
             0x07 => self.unimplemented_instruction(),
             0x09 => self.unimplemented_instruction(),
+            0x0b | 0x1b | 0x2b | 0x3b => self.dcx(opcode),
             0x19 => self.unimplemented_instruction(),
             0x29 => self.unimplemented_instruction(),
             0x39 => self.unimplemented_instruction(),
             0x0a => self.unimplemented_instruction(),
             0x1a => self.unimplemented_instruction(),
-            0x0b => self.unimplemented_instruction(),
-            0x1b => self.unimplemented_instruction(),
-            0x2b => self.unimplemented_instruction(),
-            0x3b => self.unimplemented_instruction(),
             0x0f => self.unimplemented_instruction(),
             0x1f => self.unimplemented_instruction(),
             0x22 => self.unimplemented_instruction(),
