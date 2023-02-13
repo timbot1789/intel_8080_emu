@@ -3,11 +3,11 @@ use std::fs;
 #[derive(Debug)]
 #[derive(Default)]
 struct ConditionBits {
-    carry: u8,
-    aux_carry: u8,
-    sign: u8,
-    zero: u8,
-    parity: u8
+    carry: u8, // set if value is carried out of the highest order bit
+    // aux_carry: u8, Not used for this project
+    sign: u8, // set to 1 when bit 7 is set
+    zero: u8, // set when result is equal to 0
+    parity: u8 // set when result is even
 }
 
 #[derive(Debug)]
@@ -216,19 +216,15 @@ impl Processor {
         return match opcode {
             0x00 => (|| {println!("NOP"); self.pc += 1})(),
             0x01 | 0x11 | 0x21 | 0x31 => self.lxi(opcode),
-            0x06 | 0x0e | 0x16 | 0x1e | 0x26 | 0x2e | 0x36 | 0x3e => self.mvi(opcode),
-            0x12 => self.unimplemented_instruction(),
+            0x02 | 0x12 => self.unimplemented_instruction(), // STAX
             0x03 | 0x13 | 0x23 | 0x33=> self.inx(opcode),
             0x04 | 0x0c |0x14 | 0x1c | 0x24 | 0x2c | 0x34 | 0x3c => self.inr(opcode),
             0x05 | 0x0d |0x15 | 0x1d | 0x25 | 0x2d | 0x35 | 0x3d => self.dcr(opcode),
+            0x06 | 0x0e | 0x16 | 0x1e | 0x26 | 0x2e | 0x36 | 0x3e => self.mvi(opcode),
             0x07 => self.unimplemented_instruction(),
-            0x09 => self.unimplemented_instruction(),
+            0x09 |0x19 | 0x29 | 0x39 => self.unimplemented_instruction(), // DAD
+            0x0a | 0x1a => self.unimplemented_instruction(), // LDAX
             0x0b | 0x1b | 0x2b | 0x3b => self.dcx(opcode),
-            0x19 => self.unimplemented_instruction(),
-            0x29 => self.unimplemented_instruction(),
-            0x39 => self.unimplemented_instruction(),
-            0x0a => self.unimplemented_instruction(),
-            0x1a => self.unimplemented_instruction(),
             0x0f => self.unimplemented_instruction(),
             0x1f => self.unimplemented_instruction(),
             0x22 => self.unimplemented_instruction(),
@@ -242,14 +238,14 @@ impl Processor {
             0x40..=0x75 |0x78..=0x7f => self.mov(opcode),
             0x76 => self.halt(),
             0x77 => self.unimplemented_instruction(),
-            0x80..=0x87 => self.unimplemented_instruction(),
-            0x88..=0x8f => self.unimplemented_instruction(),
-            0x90..=0x97 => self.unimplemented_instruction(),
-            0x98..=0x9f => self.unimplemented_instruction(),
-            0xa0..=0xa7 => self.unimplemented_instruction(),
-            0xa8..=0xaf => self.unimplemented_instruction(),
-            0xb0..=0xb7 => self.unimplemented_instruction(),
-            0xb8..=0xbf => self.unimplemented_instruction(),
+            0x80..=0x87 => self.unimplemented_instruction(), // ADD
+            0x88..=0x8f => self.unimplemented_instruction(), // ADC
+            0x90..=0x97 => self.unimplemented_instruction(), // SUB
+            0x98..=0x9f => self.unimplemented_instruction(), // SBB
+            0xa0..=0xa7 => self.unimplemented_instruction(), // ANA
+            0xa8..=0xaf => self.unimplemented_instruction(), // XRA
+            0xb0..=0xb7 => self.unimplemented_instruction(), // ORA
+            0xb8..=0xbf => self.unimplemented_instruction(), // CMP
             0xc0 => self.unimplemented_instruction(),
             0xc1 => self.unimplemented_instruction(),
             0xd1 => self.unimplemented_instruction(),
