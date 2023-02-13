@@ -74,25 +74,11 @@ impl Processor {
         self.pc += 2;
     }
 
-    fn get_reg_val(&mut self, reg: u8) -> u8 {
-        return match reg {
-            0 => self.b,
-            1 => self.c,
-            2 => self.d,
-            3 => self.e,
-            4 => self.h,
-            5 => self.l,
-            6 => self.load_from_memory(),
-            7 => self.a,
-            _ => 0,
-        }
-    }
-
     fn mov(&mut self, opcode: u8) {
         let reg_1: u8 = (opcode << 2) >> 5;
         let reg_2: u8 = opcode & 0b00000111;
         println!("mov {:x}, {:x}", reg_1, reg_2);
-        let val = self.get_reg_val(reg_2);
+        let val = *self.get_register(reg_2);
         self.set_register(reg_1, val);
         self.pc += 1;
     }
@@ -100,6 +86,10 @@ impl Processor {
     fn halt(&mut self) {
         println!("halt");
         self.halt = true;
+        println!("memory location 0x2020: {:04x}", self.memory[0x2020]);
+        println!("memory location 0x2121: {:04x}", self.memory[0x2121]);
+        println!("memory location 0x1f1f: {:04x}", self.memory[0x1f1f]);
+
     }
 
     fn get_mem_addr(&mut self) -> u16 {
@@ -108,30 +98,39 @@ impl Processor {
         return high_bits | low_bits;
     }
 
-    fn store_to_memory(&mut self, value: u8) -> (){
-        let addr = self.get_mem_addr();
-        println!("Storing value: 0x{:02x} to memory address: 0x{:04x}", value, addr);
-        self.memory[addr as usize] = value;
-    }
-
-    fn load_from_memory(&mut self) -> u8 {
-        let addr = self.get_mem_addr();
-        let value = self.memory[addr as usize];
-        println!("Loading value: 0x{:02x} from memory address: 0x{:04x}", value, addr);
-        return self.memory[addr as usize];
-    }
-
     fn set_register(&mut self, reg: u8, value: u8) {
-        match reg {
-            0 => self.b = value,
-            1 => self.c = value,
-            2 => self.d = value,
-            3 => self.e = value,
-            4 => self.h = value,
-            5 => self.l = value,
-            6 => self.store_to_memory(value),
-            7 => self.a = value,
-            _ => (),
+        *self.get_register(reg) = value;
+    }
+
+    fn inr(&mut self, opcode: u8) {
+        let reg_code: u8 = opcode >> 3;
+        println!("inr {:x}", reg_code);
+
+        let register = self.get_register(reg_code);
+        *register += 1;
+        self.pc += 1;
+    }
+
+    fn dcr(&mut self, opcode: u8) {
+        let reg_code: u8 = opcode >> 3;
+
+        let register = self.get_register(reg_code);
+        *register -= 1;
+        self.pc += 1;
+    }
+
+    fn get_register(&mut self, reg: u8) -> &mut u8 {
+        let mem_addr = self.get_mem_addr();
+        
+        return match reg {
+            0 => &mut self.b,
+            1 => &mut self.c,
+            2 => &mut self.d,
+            3 => &mut self.e,
+            4 => &mut self.h,
+            5 => &mut self.l,
+            6 => &mut self.memory[mem_addr as usize],
+            _ => &mut self.a,
         }
     }
 
@@ -171,23 +170,8 @@ impl Processor {
             0x13 => self.unimplemented_instruction(),
             0x23 => self.unimplemented_instruction(),
             0x33 => self.unimplemented_instruction(),
-            0x04 => self.unimplemented_instruction(),
-            0x0c => self.unimplemented_instruction(),
-            0x14 => self.unimplemented_instruction(),
-            0x1c => self.unimplemented_instruction(),
-            0x24 => self.unimplemented_instruction(),
-            0x2c => self.unimplemented_instruction(),
-            0x34 => self.unimplemented_instruction(),
-            0x3c => self.unimplemented_instruction(),
-            0x05 => self.unimplemented_instruction(),
-            0x0d => self.unimplemented_instruction(),
-            0x15 => self.unimplemented_instruction(),
-            0x17 => self.unimplemented_instruction(),
-            0x1d => self.unimplemented_instruction(),
-            0x25 => self.unimplemented_instruction(),
-            0x2d => self.unimplemented_instruction(),
-            0x3d => self.unimplemented_instruction(),
-            0x35 => self.unimplemented_instruction(),
+            0x04 | 0x0c |0x14 | 0x1c | 0x24 | 0x2c | 0x34 | 0x3c => self.inr(opcode),
+            0x05 | 0x0d |0x15 | 0x1d | 0x25 | 0x2d | 0x35 | 0x3d => self.dcr(opcode),
             0x07 => self.unimplemented_instruction(),
             0x09 => self.unimplemented_instruction(),
             0x19 => self.unimplemented_instruction(),
@@ -209,10 +193,9 @@ impl Processor {
             0x37 => self.unimplemented_instruction(),
             0x3a => self.unimplemented_instruction(),
             0x3f => self.unimplemented_instruction(),
-            0x40..=0x75 => self.mov(opcode),
+            0x40..=0x75 |0x78..=0x7f => self.mov(opcode),
             0x76 => self.halt(),
             0x77 => self.unimplemented_instruction(),
-            0x78..=0x7f => self.mov(opcode),
             0x80..=0x87 => self.unimplemented_instruction(),
             0x88..=0x8f => self.unimplemented_instruction(),
             0x90..=0x97 => self.unimplemented_instruction(),
