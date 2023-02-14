@@ -148,7 +148,7 @@ impl Processor {
 
     fn lxi(&mut self, opcode: u8) {
         let reg_pair = opcode >> 4;
-        println!("lxi {:x}, {:x}{:x}", reg_pair, self.memory[(self.pc + 1) as usize], self.memory[(self.pc + 2) as usize]);
+        println!("lxi {:x}, {:x}{:x}", reg_pair, self.memory[(self.pc) as usize], self.memory[(self.pc + 1) as usize]);
         self.set_register_pair(
             reg_pair, 
             self.memory[(self.pc + 1) as usize], 
@@ -159,8 +159,8 @@ impl Processor {
 
     fn mvi(&mut self, opcode: u8) {
         let reg = opcode >> 3;
-        println!("mvi {:x}, {:x}", reg, self.memory[(self.pc + 1) as usize]);
-        self.set_register(reg, self.memory[(self.pc + 1) as usize]);
+        println!("mvi {:x}, {:x}", reg, self.memory[(self.pc) as usize]);
+        self.set_register(reg, self.memory[(self.pc) as usize]);
         self.pc += 1;
     }
 
@@ -376,7 +376,7 @@ impl Processor {
         let opcode: u8 = self.memory[self.pc as usize];
         self.pc += 1;
         return match opcode {
-            0x00 => (|| {println!("NOP"); self.pc += 1})(),
+            0x00 => (|| {println!("NOP"); })(),
             0x01 | 0x11 | 0x21 | 0x31 => self.lxi(opcode),
             0x02 | 0x12 => self.unimplemented_instruction(), // STAX
             0x03 | 0x13 | 0x23 | 0x33=> self.inx(opcode),
