@@ -66,6 +66,53 @@ impl Processor {
         return high_bits | low_bits;
     }
 
+    fn get_register(&mut self, reg: u8) -> &mut u8 {
+        let mem_addr = self.get_mem_addr();
+        
+        return match reg {
+            0 => &mut self.b,
+            1 => &mut self.c,
+            2 => &mut self.d,
+            3 => &mut self.e,
+            4 => &mut self.h,
+            5 => &mut self.l,
+            6 => &mut self.memory[mem_addr as usize],
+            _ => &mut self.a,
+        }
+    }
+
+    fn get_register_pair_value(&mut self, reg_pair: u8) -> u16{
+        let mut high_byte: u16 = 0;
+        let mut low_byte: u16 = 0;
+        let mut sp_addr: u16 = 0;
+        
+        match reg_pair {
+            0 => (|| {
+                    low_byte = self.b as u16;
+                    high_byte = self.c as u16;
+                })(),
+            1 => (|| {
+                    low_byte = self.d as u16;
+                    high_byte = self.e as u16;
+                })(),
+            2 => (|| {
+                    low_byte = self.h as u16;
+                    high_byte = self.l as u16;
+                })(),
+            3 => (|| {
+                    sp_addr = self.sp;
+                })(),
+            _ => (),
+        }
+
+        return if reg_pair == 3 {
+            sp_addr
+        } else {
+            (high_byte << 8) | low_byte
+        };
+    }
+
+
     fn set_register(&mut self, reg: u8, value: u8) {
         *self.get_register(reg) = value;
     }
@@ -134,7 +181,6 @@ impl Processor {
         println!("memory location 0x2020: {:04x}", self.memory[0x2020]);
         println!("memory location 0x2121: {:04x}", self.memory[0x2121]);
         println!("memory location 0x1f1f: {:04x}", self.memory[0x1f1f]);
-
     }
 
     fn inr(&mut self, opcode: u8) {
@@ -282,53 +328,38 @@ impl Processor {
         self.conditions.parity = self.parity(acc as u16, 8);
     }
 
-    fn get_register(&mut self, reg: u8) -> &mut u8 {
-        let mem_addr = self.get_mem_addr();
-        
-        return match reg {
-            0 => &mut self.b,
-            1 => &mut self.c,
-            2 => &mut self.d,
-            3 => &mut self.e,
-            4 => &mut self.h,
-            5 => &mut self.l,
-            6 => &mut self.memory[mem_addr as usize],
-            _ => &mut self.a,
-        }
+    fn pchl(&mut self) { // Set program counter to address in HL registers
+        let high_bits: u16 = (self.h as u16)<< 8;
+        let low_bits: u16 = self.l as u16;
+        self.pc = high_bits | low_bits;
     }
 
-    fn get_register_pair_value(&mut self, reg_pair: u8) -> u16{
-        let mut high_byte: u16 = 0;
-        let mut low_byte: u16 = 0;
-        let mut sp_addr: u16 = 0;
-        
-        match reg_pair {
-            0 => (|| {
-                    low_byte = self.b as u16;
-                    high_byte = self.c as u16;
-                })(),
-            1 => (|| {
-                    low_byte = self.d as u16;
-                    high_byte = self.e as u16;
-                })(),
-            2 => (|| {
-                    low_byte = self.h as u16;
-                    high_byte = self.l as u16;
-                })(),
-            3 => (|| {
-                    sp_addr = self.sp;
-                })(),
-            _ => (),
+    fn jump(&mut self, opcode: u8) {
+        let pc = self.pc as usize;
+        let low_byte: u16 = self.memory[pc + 1] as u16;
+        let high_byte: u16 = (self.memory[pc + 2] as u16) << 8 ;
+        let addr = high_byte | low_byte;
+
+        if opcode & 0x1 == 1 { // JMP
+            self.pc = addr;
+            return
         }
 
-        return if reg_pair == 3 {
-            sp_addr
-        } else {
-            (high_byte << 8) | low_byte
+        let cmp_val = match (opcode >> 3) & 0b00111 {
+            0 => { !self.conditions.zero }, // JNZ
+            1 => { self.conditions.zero }, // JZ
+            2 => { !self.conditions.carry }, // JNC
+            3 => { self.conditions.carry }, // JC
+            4 => { !self.conditions.parity }, // JPO
+            5 => { self.conditions.parity }, // JPE
+            6 => { !self.conditions.sign }, // JP
+            7 => { self.conditions.sign }, // JM
+            _ => { false }
         };
+
+        if cmp_val { self.pc = addr }
+
     }
-
-
 
     fn run_one_command(&mut self) {
         let opcode: u8 = self.memory[self.pc as usize];
@@ -365,13 +396,12 @@ impl Processor {
             0xa8..=0xaf => self.xra(opcode), // XRA
             0xb0..=0xb7 => self.ora(opcode), // ORA
             0xb8..=0xbf => self.cmp(opcode), // CMP
+            0xc2 | 0xc3 | 0xca | 0xd2 | 0xda | 0xe2 | 0xea => self.jump(opcode),
             0xc0 => self.unimplemented_instruction(),
             0xc1 => self.unimplemented_instruction(),
             0xd1 => self.unimplemented_instruction(),
             0xe1 => self.unimplemented_instruction(),
             0xf1 => self.unimplemented_instruction(),
-            0xc2 => self.unimplemented_instruction(),
-            0xc3 => self.unimplemented_instruction(),
             0xc4 => self.unimplemented_instruction(),
             0xc5 => self.unimplemented_instruction(),
             0xd5 => self.unimplemented_instruction(),
@@ -381,32 +411,27 @@ impl Processor {
             0xc7 => self.unimplemented_instruction(),
             0xc8 => self.unimplemented_instruction(),
             0xc9 => self.unimplemented_instruction(),
-            0xca => self.unimplemented_instruction(),
             0xcc => self.unimplemented_instruction(),
             0xcd => self.unimplemented_instruction(),
             0xce => self.unimplemented_instruction(),
             0xcf => self.unimplemented_instruction(),
             0xd0 => self.unimplemented_instruction(),
-            0xd2 => self.unimplemented_instruction(),
             0xd3 => self.unimplemented_instruction(),
             0xd4 => self.unimplemented_instruction(),
             0xd6 => self.unimplemented_instruction(),
             0xd7 => self.unimplemented_instruction(),
             0xd8 => self.unimplemented_instruction(),
-            0xda => self.unimplemented_instruction(),
             0xdb => self.unimplemented_instruction(),
             0xdc => self.unimplemented_instruction(),
             0xde => self.unimplemented_instruction(),
             0xdf => self.unimplemented_instruction(),
             0xe0 => self.unimplemented_instruction(),
-            0xe2 => self.unimplemented_instruction(),
             0xe3 => self.unimplemented_instruction(),
             0xe4 => self.unimplemented_instruction(),
             0xe6 => self.unimplemented_instruction(),
             0xe7 => self.unimplemented_instruction(),
             0xe8 => self.unimplemented_instruction(),
-            0xe9 => self.unimplemented_instruction(),
-            0xea => self.unimplemented_instruction(),
+            0xe9 => self.pchl(),
             0xeb => self.unimplemented_instruction(),
             0xec => self.unimplemented_instruction(),
             0xee => self.unimplemented_instruction(),
