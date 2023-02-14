@@ -37,7 +37,7 @@ impl Processor {
 
         self.initialize_memory(path);
 
-        while (self.pc < self.memory.len() as u16) && !self.halt {
+        while !self.halt {
             self.run_one_command();
         }
 
@@ -49,6 +49,50 @@ impl Processor {
         .expect("Should have been able to read the file"));
         println!("{:#?}", self.memory);
         self.memory.resize_with(0xffff, || {0});
+    }
+
+    fn parity(&mut self, mut num: u16, size: usize) -> bool {
+        let mut hamming_weight: u16 = 0;
+        for _i in 0..size {
+            hamming_weight += num & 0x1;
+            num = num >> 1;
+        }
+        return (hamming_weight % 2) == 0;
+    }
+
+    fn get_mem_addr(&mut self) -> u16 {
+        let high_bits: u16 = (self.h as u16) << 8;
+        let low_bits: u16 = self.l as u16;
+        return high_bits | low_bits;
+    }
+
+    fn set_register(&mut self, reg: u8, value: u8) {
+        *self.get_register(reg) = value;
+    }
+
+    fn set_register_pair(&mut self, reg_pair: u8, low_byte: u8, high_byte: u8) {
+
+        match reg_pair {
+            0 => (|| {
+                    self.b = high_byte;
+                    self.c = low_byte;
+                })(),
+            1 => (|| {
+                    self.d = high_byte;
+                    self.e = low_byte
+                })(),
+            2 => (|| {
+                    self.h = high_byte;
+                    self.l = low_byte;
+                })(),
+            3 => (|| {
+                    let mut sp_addr : u16 = high_byte as u16;
+                    sp_addr = sp_addr << 8;
+                    sp_addr = sp_addr | low_byte as u16;
+                    self.sp = sp_addr
+                })(),
+            _ => (),
+        }
     }
 
     fn unimplemented_instruction(&mut self) {
@@ -86,20 +130,11 @@ impl Processor {
     fn halt(&mut self) {
         println!("halt");
         self.halt = true;
+        self.pc += 1;
         println!("memory location 0x2020: {:04x}", self.memory[0x2020]);
         println!("memory location 0x2121: {:04x}", self.memory[0x2121]);
         println!("memory location 0x1f1f: {:04x}", self.memory[0x1f1f]);
 
-    }
-
-    fn get_mem_addr(&mut self) -> u16 {
-        let high_bits: u16 = (self.h as u16) << 8;
-        let low_bits: u16 = self.l as u16;
-        return high_bits | low_bits;
-    }
-
-    fn set_register(&mut self, reg: u8, value: u8) {
-        *self.get_register(reg) = value;
     }
 
     fn inr(&mut self, opcode: u8) {
@@ -111,15 +146,14 @@ impl Processor {
         *register = (cur_val & 0x00ff) as u8;
         self.conditions.sign = (cur_val >> 7) != 0;
         self.conditions.zero = cur_val == 0;
-        self.conditions.parity = cur_val % 2 == 0;
+        self.conditions.parity = self.parity(cur_val, 8);
         self.conditions.carry = (cur_val >> 8) > 0;
         self.pc += 1;
     }
 
     fn inx(&mut self, opcode: u8) {
         let reg_pair = (opcode >> 4) & 0b1100;
-        let mut pair_val = self.get_register_pair_value(reg_pair);
-        pair_val += 1;
+        let pair_val = self.get_register_pair_value(reg_pair) + 1;
         let low_byte: u8 = (pair_val >> 8) as u8;
         let high_byte: u8 = (pair_val & 0xff) as u8;
         self.set_register_pair(reg_pair, low_byte, high_byte);
@@ -130,7 +164,17 @@ impl Processor {
         let reg_code: u8 = opcode >> 3;
 
         let register = self.get_register(reg_code);
-        *register -= 1;
+        let cur_val: u16 = if *register > 0 {
+            (*register as u16) - 1
+        }
+        else {
+            0xff as u16
+        };
+        *register = (cur_val & 0x00ff) as u8;
+        self.conditions.sign = (cur_val >> 7) != 0;
+        self.conditions.zero = cur_val == 0;
+        self.conditions.parity = self.parity(cur_val, 8);
+        self.conditions.carry = cur_val > 0xff;
         self.pc += 1;
     }
 
@@ -142,6 +186,100 @@ impl Processor {
         let high_byte: u8 = (pair_val & 0xff) as u8;
         self.set_register_pair(reg_pair, low_byte, high_byte);
         self.pc += 1;
+    }
+
+    fn add(&mut self, opcode: u8) {
+        let reg_num: u8 = opcode & 0b111;
+        let answer: u16 = (self.a as u16) + (*self.get_register(reg_num) as u16);
+        self.conditions.sign = (answer & 0x80) != 0;
+        self.conditions.zero = (answer & 0xff) == 0;
+        self.conditions.parity = self.parity(answer & 0xff, 8);
+        self.conditions.carry = answer > 0xff;
+        self.a = (answer & 0xff) as u8;
+    }
+
+    fn adc(&mut self, opcode: u8) {
+        let reg_num: u8 = opcode & 0b111;
+        let answer: u16 = (self.a as u16) + (*self.get_register(reg_num) as u16) + (self.conditions.carry as u16);
+
+        self.conditions.sign = (answer & 0x80) != 0;
+        self.conditions.zero = (answer & 0xff) == 0;
+        self.conditions.parity = self.parity(answer & 0xff, 8);
+        self.conditions.carry = answer > 0xff;
+        self.a = (answer & 0xff) as u8;
+    }
+
+    fn sub(&mut self, opcode: u8) {
+        let reg_num: u8 = opcode & 0b111;
+        let minuend = *self.get_register(reg_num);
+        if self.a > minuend {
+            self.a -= minuend;
+            self.conditions.carry = true;
+        } else {
+            self.a = 0;
+            self.conditions.carry = false;
+        };
+        self.conditions.sign = (self.a & 0x80) != 0;
+        self.conditions.zero = self.a == 0;
+        self.conditions.parity = self.parity(self.a as u16, 8);
+    }
+
+    fn sbb(&mut self, opcode: u8) {
+        let reg_num: u8 = opcode & 0b111;
+        let minuend = *self.get_register(reg_num);
+        if self.a > (minuend + self.conditions.carry as u8) {
+            self.a -= minuend + self.conditions.carry as u8;
+            self.conditions.carry = true;
+        } else {
+            self.a = 0;
+            self.conditions.carry = false;
+        };
+        self.conditions.sign = (self.a & 0x80) != 0;
+        self.conditions.zero = self.a == 0;
+        self.conditions.parity = self.parity(self.a as u16, 8);
+    }
+    
+    fn ana(&mut self, opcode: u8) {
+        let reg_num: u8 = opcode & 0b111;
+        self.a = self.a & *self.get_register(reg_num);
+        self.conditions.carry = false;
+        self.conditions.sign = (self.a & 0x80) != 0;
+        self.conditions.zero = self.a == 0;
+        self.conditions.parity = self.parity(self.a as u16, 8);
+    }
+
+    fn xra(&mut self, opcode: u8) {
+        let reg_num: u8 = opcode & 0b111;
+        self.a = self.a ^ *self.get_register(reg_num);
+        self.conditions.carry = false;
+        self.conditions.sign = (self.a & 0x80) != 0;
+        self.conditions.zero = self.a == 0;
+        self.conditions.parity = self.parity(self.a as u16, 8);
+    }
+
+    fn ora(&mut self, opcode: u8) {
+        let reg_num: u8 = opcode & 0b111;
+        self.a = self.a | *self.get_register(reg_num);
+        self.conditions.carry = false;
+        self.conditions.sign = (self.a & 0x80) != 0;
+        self.conditions.zero = self.a == 0;
+        self.conditions.parity = self.parity(self.a as u16, 8);
+    }
+
+    fn cmp(&mut self, opcode: u8) {
+        let reg_num: u8 = opcode & 0b111;
+        let minuend = *self.get_register(reg_num);
+        let mut acc = self.a;
+        if acc > minuend {
+            acc -= minuend;
+            self.conditions.carry = true;
+        } else {
+            acc = 0;
+            self.conditions.carry = false;
+        };
+        self.conditions.sign = (acc & 0x80) != 0;
+        self.conditions.zero = acc == 0;
+        self.conditions.parity = self.parity(acc as u16, 8);
     }
 
     fn get_register(&mut self, reg: u8) -> &mut u8 {
@@ -191,30 +329,6 @@ impl Processor {
     }
 
 
-    fn set_register_pair(&mut self, reg_pair: u8, low_byte: u8, high_byte: u8) {
-
-        match reg_pair {
-            0 => (|| {
-                    self.b = high_byte;
-                    self.c = low_byte;
-                })(),
-            1 => (|| {
-                    self.d = high_byte;
-                    self.e = low_byte
-                })(),
-            2 => (|| {
-                    self.h = high_byte;
-                    self.l = low_byte;
-                })(),
-            3 => (|| {
-                    let mut sp_addr : u16 = high_byte as u16;
-                    sp_addr = sp_addr << 8;
-                    sp_addr = sp_addr | low_byte as u16;
-                    self.sp = sp_addr
-                })(),
-            _ => (),
-        }
-    }
 
     fn run_one_command(&mut self) {
         let opcode: u8 = self.memory[self.pc as usize];
@@ -243,14 +357,14 @@ impl Processor {
             0x40..=0x75 |0x78..=0x7f => self.mov(opcode),
             0x76 => self.halt(),
             0x77 => self.unimplemented_instruction(),
-            0x80..=0x87 => self.unimplemented_instruction(), // ADD
-            0x88..=0x8f => self.unimplemented_instruction(), // ADC
-            0x90..=0x97 => self.unimplemented_instruction(), // SUB
-            0x98..=0x9f => self.unimplemented_instruction(), // SBB
-            0xa0..=0xa7 => self.unimplemented_instruction(), // ANA
-            0xa8..=0xaf => self.unimplemented_instruction(), // XRA
-            0xb0..=0xb7 => self.unimplemented_instruction(), // ORA
-            0xb8..=0xbf => self.unimplemented_instruction(), // CMP
+            0x80..=0x87 => self.add(opcode), // ADD
+            0x88..=0x8f => self.adc(opcode), // ADC
+            0x90..=0x97 => self.sub(opcode), // SUB
+            0x98..=0x9f => self.sbb(opcode), // SBB
+            0xa0..=0xa7 => self.ana(opcode), // ANA
+            0xa8..=0xaf => self.xra(opcode), // XRA
+            0xb0..=0xb7 => self.ora(opcode), // ORA
+            0xb8..=0xbf => self.cmp(opcode), // CMP
             0xc0 => self.unimplemented_instruction(),
             0xc1 => self.unimplemented_instruction(),
             0xd1 => self.unimplemented_instruction(),
