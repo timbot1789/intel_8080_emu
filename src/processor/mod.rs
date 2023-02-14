@@ -144,7 +144,6 @@ impl Processor {
 
     fn unimplemented_instruction(&mut self) {
         println!("Error: Unimplemented Instruction: {}\n", self.memory[self.pc as usize]);
-        self.pc += 1;
     }
 
     fn lxi(&mut self, opcode: u8) {
@@ -155,14 +154,14 @@ impl Processor {
             self.memory[(self.pc + 1) as usize], 
             self.memory[(self.pc + 2) as usize]
         );
-        self.pc += 3;
+        self.pc += 2;
     }
 
     fn mvi(&mut self, opcode: u8) {
         let reg = opcode >> 3;
         println!("mvi {:x}, {:x}", reg, self.memory[(self.pc + 1) as usize]);
         self.set_register(reg, self.memory[(self.pc + 1) as usize]);
-        self.pc += 2;
+        self.pc += 1;
     }
 
     fn mov(&mut self, opcode: u8) {
@@ -171,13 +170,11 @@ impl Processor {
         println!("mov {:x}, {:x}", reg_1, reg_2);
         let val = *self.get_register(reg_2);
         self.set_register(reg_1, val);
-        self.pc += 1;
     }
 
     fn halt(&mut self) {
         println!("halt");
         self.halt = true;
-        self.pc += 1;
         println!("memory location 0x2020: {:04x}", self.memory[0x2020]);
         println!("memory location 0x2121: {:04x}", self.memory[0x2121]);
         println!("memory location 0x1f1f: {:04x}", self.memory[0x1f1f]);
@@ -194,7 +191,6 @@ impl Processor {
         self.conditions.zero = cur_val == 0;
         self.conditions.parity = self.parity(cur_val, 8);
         self.conditions.carry = (cur_val >> 8) > 0;
-        self.pc += 1;
     }
 
     fn inx(&mut self, opcode: u8) {
@@ -203,7 +199,6 @@ impl Processor {
         let low_byte: u8 = (pair_val >> 8) as u8;
         let high_byte: u8 = (pair_val & 0xff) as u8;
         self.set_register_pair(reg_pair, low_byte, high_byte);
-        self.pc += 1;
     }
 
     fn dcr(&mut self, opcode: u8) {
@@ -221,7 +216,6 @@ impl Processor {
         self.conditions.zero = cur_val == 0;
         self.conditions.parity = self.parity(cur_val, 8);
         self.conditions.carry = cur_val > 0xff;
-        self.pc += 1;
     }
 
     fn dcx(&mut self, opcode: u8) {
@@ -231,7 +225,6 @@ impl Processor {
         let low_byte: u8 = (pair_val >> 8) as u8;
         let high_byte: u8 = (pair_val & 0xff) as u8;
         self.set_register_pair(reg_pair, low_byte, high_byte);
-        self.pc += 1;
     }
 
     fn add(&mut self, opcode: u8) {
@@ -334,16 +327,16 @@ impl Processor {
         self.pc = high_bits | low_bits;
     }
 
-    fn jump(&mut self, opcode: u8) {
+    fn jmp(&mut self) {
         let pc = self.pc as usize;
         let low_byte: u16 = self.memory[pc + 1] as u16;
         let high_byte: u16 = (self.memory[pc + 2] as u16) << 8 ;
         let addr = high_byte | low_byte;
 
-        if opcode & 0x1 == 1 { // JMP
-            self.pc = addr;
-            return
-        }
+        self.pc = addr;
+    }
+
+    fn jump(&mut self, opcode: u8) {
 
         let cmp_val = match (opcode >> 3) & 0b00111 {
             0 => { !self.conditions.zero }, // JNZ
@@ -357,12 +350,31 @@ impl Processor {
             _ => { false }
         };
 
-        if cmp_val { self.pc = addr }
+        if cmp_val { self.jmp() }
+    }
 
+    fn call(&mut self) {
+        let sp: usize = self.sp as usize;
+        let ret: u16 = self.pc + 2;
+        let low_byte: u8 = (ret & 0xff00) as u8;
+        let high_byte: u8 = (ret >> 8) as u8 ;
+        self.memory[sp - 1] = high_byte;
+        self.memory[sp - 2] = low_byte;
+        self.sp -= 2;
+        self.jmp();
+    }
+
+    fn ret(&mut self) {
+        let sp: usize = self.sp as usize;
+        let low_byte: u16 = self.memory[sp] as u16;
+        let high_byte: u16 = (self.memory[sp + 1] as u16) << 8 ;
+        self.sp += 2;
+        self.pc = high_byte | low_byte;
     }
 
     fn run_one_command(&mut self) {
         let opcode: u8 = self.memory[self.pc as usize];
+        self.pc += 1;
         return match opcode {
             0x00 => (|| {println!("NOP"); self.pc += 1})(),
             0x01 | 0x11 | 0x21 | 0x31 => self.lxi(opcode),
@@ -396,7 +408,8 @@ impl Processor {
             0xa8..=0xaf => self.xra(opcode), // XRA
             0xb0..=0xb7 => self.ora(opcode), // ORA
             0xb8..=0xbf => self.cmp(opcode), // CMP
-            0xc2 | 0xc3 | 0xca | 0xd2 | 0xda | 0xe2 | 0xea => self.jump(opcode),
+            0xc2 | 0xca | 0xd2 | 0xda | 0xe2 | 0xea => self.jump(opcode),
+            0xc3 => self.jmp(),
             0xc0 => self.unimplemented_instruction(),
             0xc1 => self.unimplemented_instruction(),
             0xd1 => self.unimplemented_instruction(),
@@ -410,9 +423,9 @@ impl Processor {
             0xc6 => self.unimplemented_instruction(),
             0xc7 => self.unimplemented_instruction(),
             0xc8 => self.unimplemented_instruction(),
-            0xc9 => self.unimplemented_instruction(),
+            0xc9 => self.ret(),
             0xcc => self.unimplemented_instruction(),
-            0xcd => self.unimplemented_instruction(),
+            0xcd => self.call(),
             0xce => self.unimplemented_instruction(),
             0xcf => self.unimplemented_instruction(),
             0xd0 => self.unimplemented_instruction(),
