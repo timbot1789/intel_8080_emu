@@ -341,9 +341,8 @@ impl Processor {
         self.pc = addr;
     }
 
-    fn jump(&mut self, opcode: u8) {
-
-        let cmp_val = match (opcode >> 3) & 0b00111 {
+    fn match_conds(&mut self, opcode: u8) -> bool {
+        return match (opcode >> 3) & 0b00111 {
             0 => { !self.conditions.zero }, // JNZ
             1 => { self.conditions.zero }, // JZ
             2 => { !self.conditions.carry }, // JNC
@@ -354,8 +353,6 @@ impl Processor {
             7 => { self.conditions.sign }, // JM
             _ => { false }
         };
-
-        if cmp_val { self.jmp() }
     }
 
     fn call(&mut self) {
@@ -413,45 +410,35 @@ impl Processor {
             0xa8..=0xaf => self.xra(opcode), // XRA
             0xb0..=0xb7 => self.ora(opcode), // ORA
             0xb8..=0xbf => self.cmp(opcode), // CMP
-            0xc2 | 0xca | 0xd2 | 0xda | 0xe2 | 0xea => self.jump(opcode),
+            0xc2 | 0xca | 0xd2 | 0xda | 0xe2 | 0xea => if self.match_conds(opcode) { self.jmp() },
             0xc3 => self.jmp(),
-            0xc0 => self.unimplemented_instruction(),
+            0xc4 | 0xcc | 0xd4 | 0xdc | 0xe4 | 0xec => if self.match_conds(opcode) { self.call() },
+            0xc0 | 0xc8 | 0xd0 | 0xd8 | 0xe0 | 0xe8 => if self.match_conds(opcode) { self.ret() },
             0xc1 => self.unimplemented_instruction(),
             0xd1 => self.unimplemented_instruction(),
             0xe1 => self.unimplemented_instruction(),
             0xf1 => self.unimplemented_instruction(),
-            0xc4 => self.unimplemented_instruction(),
             0xc5 => self.unimplemented_instruction(),
             0xd5 => self.unimplemented_instruction(),
             0xe5 => self.unimplemented_instruction(),
             0xf5 => self.unimplemented_instruction(),
             0xc6 => self.unimplemented_instruction(),
             0xc7 => self.unimplemented_instruction(),
-            0xc8 => self.unimplemented_instruction(),
             0xc9 => self.ret(),
-            0xcc => self.unimplemented_instruction(),
             0xcd => self.call(),
             0xce => self.unimplemented_instruction(),
             0xcf => self.unimplemented_instruction(),
-            0xd0 => self.unimplemented_instruction(),
             0xd3 => self.unimplemented_instruction(),
-            0xd4 => self.unimplemented_instruction(),
             0xd6 => self.unimplemented_instruction(),
             0xd7 => self.unimplemented_instruction(),
-            0xd8 => self.unimplemented_instruction(),
             0xdb => self.unimplemented_instruction(),
-            0xdc => self.unimplemented_instruction(),
             0xde => self.unimplemented_instruction(),
             0xdf => self.unimplemented_instruction(),
-            0xe0 => self.unimplemented_instruction(),
             0xe3 => self.unimplemented_instruction(),
-            0xe4 => self.unimplemented_instruction(),
             0xe6 => self.unimplemented_instruction(),
             0xe7 => self.unimplemented_instruction(),
-            0xe8 => self.unimplemented_instruction(),
             0xe9 => self.pchl(),
             0xeb => self.unimplemented_instruction(),
-            0xec => self.unimplemented_instruction(),
             0xee => self.unimplemented_instruction(),
             0xef => self.unimplemented_instruction(),
             0xf0 => self.unimplemented_instruction(),
@@ -518,6 +505,5 @@ mod tests {
         assert_eq!(processor.sp, 0x53);
         assert_eq!(processor.pc, 0xc);
     }
-
 }
 
