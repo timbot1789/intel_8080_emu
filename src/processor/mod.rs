@@ -190,7 +190,6 @@ impl Processor {
         self.conditions.sign = (cur_val >> 7) != 0;
         self.conditions.zero = cur_val == 0;
         self.conditions.parity = self.parity(cur_val, 8);
-        self.conditions.carry = (cur_val >> 8) > 0;
     }
 
     fn inx(&mut self, opcode: u8) {
@@ -199,6 +198,9 @@ impl Processor {
         let low_byte: u8 = (pair_val >> 8) as u8;
         let high_byte: u8 = (pair_val & 0xff) as u8;
         self.set_register_pair(reg_pair, low_byte, high_byte);
+        self.conditions.sign = (pair_val >> 15) != 0;
+        self.conditions.zero = pair_val == 0;
+        self.conditions.parity = self.parity(pair_val, 16);
     }
 
     fn dcr(&mut self, opcode: u8) {
@@ -225,6 +227,9 @@ impl Processor {
         let low_byte: u8 = (pair_val >> 8) as u8;
         let high_byte: u8 = (pair_val & 0xff) as u8;
         self.set_register_pair(reg_pair, low_byte, high_byte);
+        self.conditions.sign = (pair_val >> 15) != 0;
+        self.conditions.zero = pair_val == 0;
+        self.conditions.parity = self.parity(pair_val, 16);
     }
 
     fn add(&mut self, opcode: u8) {
@@ -234,7 +239,7 @@ impl Processor {
         self.conditions.zero = (answer & 0xff) == 0;
         self.conditions.parity = self.parity(answer & 0xff, 8);
         self.conditions.carry = answer > 0xff;
-        self.a = (answer & 0xff) as u8;
+        self.a = (answer << 8 >> 8) as u8;
     }
 
     fn adc(&mut self, opcode: u8) {
@@ -472,7 +477,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_add() {
+    fn test_inr() {
         let mut processor: Processor = make_processor();
         processor.run_program("tests/inr_test.bin");
 
@@ -483,6 +488,27 @@ mod tests {
         assert_eq!(processor.h, 0x21);
         assert_eq!(processor.l, 0x21);
         assert_eq!(processor.memory[0x2121], 1);
+    }
+
+    #[test]
+    fn test_mem() {
+        let mut processor: Processor = make_processor();
+        processor.run_program("tests/mem_test.bin");
+
+        assert_eq!(processor.b, 1);
+        assert_eq!(processor.c, 1);
+        assert_eq!(processor.memory[0x2020], 1);
+    }
+
+    #[test]
+    fn test_add() {
+        let mut processor: Processor = make_processor();
+        processor.run_program("tests/add_test.bin");
+
+        assert_eq!(processor.a, 0xfb);
+        assert!(processor.conditions.sign);
+        assert!(processor.conditions.carry);
+
     }
 
 }
