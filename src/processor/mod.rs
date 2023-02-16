@@ -24,6 +24,7 @@ pub struct Processor {
     pc: u16,
     conditions: ConditionBits,
     halt: bool,
+    interrupt_enabled: bool,
     memory: Vec<u8>,
 }
 
@@ -313,6 +314,17 @@ impl Processor {
         self.pc += 1;
         self.subtract_acc(minuend, subtrahend);
     }
+
+    fn dad(&mut self, opcode: u8) {
+        let reg_pair: u32 = self.get_register_pair_value(opcode >> 4) as u32;
+        let hl_val: u32 = self.get_register_pair_value(2) as u32;
+        let sum: u32 = reg_pair + hl_val;
+        self.conditions.carry = sum & 0xffff0000 > 0;
+        let sum_cast: u16 = (sum & 0x0000ffff) as u16;
+        let low_byte: u8 = (sum_cast >> 8) as u8;
+        let high_byte: u8 = (sum_cast & 0xff) as u8;
+        self.set_register_pair(2, low_byte, high_byte);
+    }
     
     fn ana(&mut self, opcode: u8) {
         let f = |left: u8, right: u8| -> u8 {
@@ -489,7 +501,7 @@ impl Processor {
             0x05 | 0x0d |0x15 | 0x1d | 0x25 | 0x2d | 0x35 | 0x3d => self.dcr(opcode),
             0x06 | 0x0e | 0x16 | 0x1e | 0x26 | 0x2e | 0x36 | 0x3e => self.mvi(opcode),
             0x07 | 0x0f | 0x17 | 0x1f => self.rotate_acc(opcode),
-            0x09 |0x19 | 0x29 | 0x39 => self.unimplemented_instruction(), // DAD
+            0x09 |0x19 | 0x29 | 0x39 => self.dad(opcode), // DAD
             0x0a | 0x1a => self.unimplemented_instruction(), // LDAX
             0x0b | 0x1b | 0x2b | 0x3b => self.dcx(opcode),
             0x22 => self.unimplemented_instruction(),
@@ -544,14 +556,14 @@ impl Processor {
             0xef => self.unimplemented_instruction(),
             0xf0 => self.unimplemented_instruction(),
             0xf2 => self.unimplemented_instruction(),
-            0xf3 => self.unimplemented_instruction(),
+            0xf3 => self.interrupt_enabled = false,
             0xf4 => self.unimplemented_instruction(),
             0xf6 => self.ori(),
             0xf7 => self.unimplemented_instruction(),
             0xf8 => self.unimplemented_instruction(),
             0xf9 => self.unimplemented_instruction(),
             0xfa => self.unimplemented_instruction(),
-            0xfb => self.unimplemented_instruction(),
+            0xfb => self.interrupt_enabled = true,
             0xfc => self.unimplemented_instruction(),
             0xfe => self.cpi(),
             0xff => self.unimplemented_instruction(),
