@@ -4,7 +4,7 @@ use std::fs;
 #[derive(Default)]
 struct ConditionBits {
     carry: bool, // set if value is carried out of the highest order bit
-    // aux_carry: u8, Not used for this project
+    aux_carry: bool, // Not used for this project
     sign: bool, // set to 1 when bit 7 is set
     zero: bool, // set when result is equal to 0
     parity: bool // set when result is even
@@ -30,6 +30,26 @@ pub struct Processor {
 
 pub fn make_processor() -> Processor {
     return Processor { ..Default::default()};
+}
+
+impl ConditionBits {
+    pub fn set_flags(&mut self, byte: u8) {
+        self.carry = (byte & 0b1) != 0;
+        self.parity = (byte & 0b100) != 0;
+        self.aux_carry = (byte & 0b10000) != 0;
+        self.zero = (byte & 0b1000000) != 0;
+        self.sign = (byte & 0b10000000) != 0;
+    }
+
+    pub fn convert_to_flags(&mut self) -> u8 {
+        let mut ret: u8 = 0b0;
+        if self.carry { ret = ret | 0b1};
+        if self.parity { ret = ret | 0b100 };
+        if self.aux_carry { ret = ret | 0b10000 };
+        if self.zero { ret = ret | 0b1000000 };
+        if self.sign { ret = ret | 0b10000000};
+        return ret;
+    }
 }
 
 impl Processor {
@@ -209,6 +229,10 @@ impl Processor {
         println!("Error: Unimplemented Instruction: {}\n", self.memory[self.pc as usize]);
     }
 
+    fn nop(&mut self) {
+        println!("NOP");
+    }
+
     fn lxi(&mut self, opcode: u8) {
         let reg_pair = opcode >> 4;
         let low_byte: u8 = self.memory[(self.pc) as usize];
@@ -223,9 +247,58 @@ impl Processor {
         self.pc += 2;
     }
 
+    fn lhld(&mut self) {
+        let pc: usize = self.pc as usize;
+        let low_byte = self.memory[pc];
+        let high_byte = self.memory[pc + 1];
+        self.pc += 2;
+        let addr: usize = self.merge_bytes(high_byte, low_byte) as usize;
+        self.l = self.memory[addr];
+        self.h = self.memory[addr + 1];
+    }
+
+    fn shld(&mut self) {
+        let pc: usize = self.pc as usize;
+        let low_byte = self.memory[pc];
+        let high_byte = self.memory[pc + 1];
+        self.pc += 2;
+        let addr: usize = self.merge_bytes(high_byte, low_byte) as usize;
+        self.memory[addr] = self.l;
+        self.memory[addr + 1] = self.h;
+    }
+
+    fn sta(&mut self) {
+        let pc: usize = self.pc as usize;
+        let low_byte = self.memory[pc];
+        let high_byte = self.memory[pc + 1];
+        self.pc += 2;
+        let addr: usize = self.merge_bytes(high_byte, low_byte) as usize;
+        self.memory[addr] = self.a;
+    }
+
+    fn lda(&mut self) {
+        let pc: usize = self.pc as usize;
+        let low_byte = self.memory[pc];
+        let high_byte = self.memory[pc + 1];
+        self.pc += 2;
+        let addr: usize = self.merge_bytes(high_byte, low_byte) as usize;
+        self.a = self.memory[addr];
+    }
+
+    fn stax(&mut self, opcode: u8) {
+        let reg_pair = opcode >> 4;
+        let addr: usize = self.get_register_pair_value(reg_pair) as usize;
+        self.memory[addr] = self.a;
+    }
+
+    fn ldax(&mut self, opcode: u8){
+        let reg_pair = opcode >> 4;
+        let addr: usize = self.get_register_pair_value(reg_pair) as usize;
+        self.a = self.memory[addr];
+    }
+
     fn mvi(&mut self, opcode: u8) {
         let reg = opcode >> 3;
-        println!("mvi {:x}, {:x}", reg, self.memory[(self.pc) as usize]);
         self.set_register(reg, self.memory[(self.pc) as usize]);
         self.pc += 1;
     }
@@ -528,32 +601,58 @@ impl Processor {
         self.pc = self.pop_addr_from_stack();
     }
 
+    fn pop(&mut self, opcode: u8) {
+        let reg_pair: u8 = opcode >> 4; 
+        let low_byte: u8 = self.pop_from_stack();
+        let high_byte: u8 = self.pop_from_stack();
+        if reg_pair < 3 {
+            let val = self.merge_bytes(high_byte, low_byte);
+            self.set_register_pair(reg_pair, val);
+            return;
+        }
+
+        self.a = high_byte;
+        self.conditions.set_flags(low_byte);
+    }
+
+    fn push(&mut self, opcode: u8) {
+        let reg_pair: u8 = (opcode >> 4) & 0b11; 
+        if reg_pair < 3 {
+            let val = self.get_register_pair_value(reg_pair);
+            self.push_addr_to_stack(val);
+            return;
+        }
+
+        self.push_to_stack(self.a);
+        let flags: u8 = self.conditions.convert_to_flags();
+        self.push_to_stack(flags);
+    }
+
     fn run_one_command(&mut self) {
         let opcode: u8 = self.memory[self.pc as usize];
         self.pc += 1;
         return match opcode {
-            0x00 => (|| {println!("NOP"); })(),
+            0x00 => self.nop(),
             0x01 | 0x11 | 0x21 | 0x31 => self.lxi(opcode),
-            0x02 | 0x12 => self.unimplemented_instruction(), // STAX
+            0x02 | 0x12 => self.stax(opcode),
             0x03 | 0x13 | 0x23 | 0x33=> self.inx(opcode),
             0x04 | 0x0c |0x14 | 0x1c | 0x24 | 0x2c | 0x34 | 0x3c => self.inr(opcode),
             0x05 | 0x0d |0x15 | 0x1d | 0x25 | 0x2d | 0x35 | 0x3d => self.dcr(opcode),
             0x06 | 0x0e | 0x16 | 0x1e | 0x26 | 0x2e | 0x36 | 0x3e => self.mvi(opcode),
             0x07 | 0x0f | 0x17 | 0x1f => self.rotate_acc(opcode),
-            0x09 |0x19 | 0x29 | 0x39 => self.dad(opcode), // DAD
-            0x0a | 0x1a => self.unimplemented_instruction(), // LDAX
+            0x09 |0x19 | 0x29 | 0x39 => self.dad(opcode),
+            0x0a | 0x1a => self.ldax(opcode),
             0x0b | 0x1b | 0x2b | 0x3b => self.dcx(opcode),
-            0x22 => self.unimplemented_instruction(),
-            0x27 => self.unimplemented_instruction(),
-            0x2a => self.unimplemented_instruction(),
-            0x2f => self.unimplemented_instruction(),
-            0x32 => self.unimplemented_instruction(),
+            0x22 => self.shld(),
+            0x27 => self.nop(), // DAA
+            0x2a => self.lhld(),
+            0x2f => self.a = !self.a, // CMA
+            0x32 => self.sta(),
             0x37 => self.conditions.carry = true,
-            0x3a => self.unimplemented_instruction(),
+            0x3a => self.lda(),
             0x3f => self.conditions.carry = !self.conditions.carry,
-            0x40..=0x75 |0x78..=0x7f => self.mov(opcode),
+            0x40..=0x75 |0x77..=0x7f => self.mov(opcode),
             0x76 => self.halt(),
-            0x77 => self.unimplemented_instruction(),
             0x80..=0x87 => self.add(opcode), // ADD
             0x88..=0x8f => self.adc(opcode), // ADC
             0x90..=0x97 => self.sub(opcode), // SUB
@@ -566,46 +665,33 @@ impl Processor {
             0xc3 => self.jmp(),
             0xc4 | 0xcc | 0xd4 | 0xdc | 0xe4 | 0xec => if self.match_conds(opcode) { self.call() },
             0xc0 | 0xc8 | 0xd0 | 0xd8 | 0xe0 | 0xe8 => if self.match_conds(opcode) { self.ret() },
-            0xc1 => self.unimplemented_instruction(),
-            0xd1 => self.unimplemented_instruction(),
-            0xe1 => self.unimplemented_instruction(),
-            0xf1 => self.unimplemented_instruction(),
-            0xc5 => self.unimplemented_instruction(),
-            0xd5 => self.unimplemented_instruction(),
-            0xe5 => self.unimplemented_instruction(),
-            0xf5 => self.unimplemented_instruction(),
+            0xc1 | 0xd1 | 0xe1 | 0xf1 => self.pop(opcode),
+            0xc5 | 0xd5 | 0xe5 | 0xf5=> self.push(opcode),
             0xc6 => self.adi(),
-            0xc7 => self.unimplemented_instruction(),
+            0xc7 | 0xcf | 0xd7 | 0xdf | 0xe7 | 0xef | 0xf7 | 0xff => self.unimplemented_instruction(), // TODO: RST
             0xc9 => self.ret(),
             0xcd => self.call(),
             0xce => self.aci(),
-            0xcf => self.unimplemented_instruction(),
-            0xd3 => self.unimplemented_instruction(),
+            0xd3 => self.unimplemented_instruction(), // TODO: OUT
             0xd6 => self.sui(),
-            0xd7 => self.unimplemented_instruction(),
-            0xdb => self.unimplemented_instruction(),
+            0xdb => self.unimplemented_instruction(), // TODO: IN
             0xde => self.sbi(),
-            0xdf => self.unimplemented_instruction(),
             0xe3 => self.xthl(),
             0xe6 => self.ani(),
-            0xe7 => self.unimplemented_instruction(),
             0xe9 => self.pchl(),
             0xeb => self.xchg(),
             0xee => self.xri(),
-            0xef => self.unimplemented_instruction(),
-            0xf0 => self.unimplemented_instruction(),
-            0xf2 => self.unimplemented_instruction(),
+            0xf0 => self.unimplemented_instruction(), // TODO: RP
+            0xf2 => self.unimplemented_instruction(), // TODO: JP
             0xf3 => self.interrupt_enabled = false,
-            0xf4 => self.unimplemented_instruction(),
+            0xf4 => self.unimplemented_instruction(), // TODO: CP
             0xf6 => self.ori(),
-            0xf7 => self.unimplemented_instruction(),
-            0xf8 => self.unimplemented_instruction(),
-            0xf9 => self.unimplemented_instruction(),
-            0xfa => self.unimplemented_instruction(),
+            0xf8 => self.unimplemented_instruction(), // TODO: RM
+            0xf9 => self.unimplemented_instruction(), // TODO: SPHL
+            0xfa => self.unimplemented_instruction(), // TODO: JM
             0xfb => self.interrupt_enabled = true,
-            0xfc => self.unimplemented_instruction(),
+            0xfc => self.unimplemented_instruction(), // CM
             0xfe => self.cpi(),
-            0xff => self.unimplemented_instruction(),
             _ => self.unimplemented_instruction(),
         }
     }
@@ -656,6 +742,16 @@ mod tests {
 
         assert_eq!(processor.sp, 0x53);
         assert_eq!(processor.pc, 0xc);
+    }
+
+    #[test]
+    fn test_mov(){
+        let mut processor: Processor = make_processor();
+        processor.run_program("tests/mov_test.bin");
+
+        assert_eq!(processor.b, 0x4);
+        assert_eq!(processor.memory[0x2019], 0x2);
+        assert_eq!(processor.memory[0x1918], 0x4);
     }
 }
 
