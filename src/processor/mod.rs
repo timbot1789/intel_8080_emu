@@ -60,6 +60,30 @@ impl Processor {
         return (hamming_weight % 2) == 0;
     }
 
+    fn set_add_flags(&mut self, answer: u16) {
+        self.conditions.sign = (answer & 0x80) != 0;
+        self.conditions.zero = (answer & 0xff) == 0;
+        self.conditions.parity = self.parity(answer & 0xff, 8);
+        self.conditions.carry = answer > 0xff;
+    }
+
+    fn subtract_acc(&mut self, minuend: u16, subtrahend: u16) {
+        let difference: u16 = minuend - subtrahend;
+        self.a = ((minuend - subtrahend) & 0xff) as u8;
+        self.conditions.carry = difference >= 0x100;
+        self.conditions.sign = (self.a & 0x80) != 0;
+        self.conditions.zero = self.a == 0;
+        self.conditions.parity = self.parity(self.a as u16, 8);
+    }
+
+    fn logical_op(&mut self, left: u8, right: u8, f: fn(u8, u8) -> u8  ){
+        self.a = f(left, right);
+        self.conditions.carry = false;
+        self.conditions.sign = (self.a & 0x80) != 0;
+        self.conditions.zero = self.a == 0;
+        self.conditions.parity = self.parity(self.a as u16, 8);
+    }
+
     fn get_mem_addr(&mut self) -> u16 {
         let high_bits: u16 = (self.h as u16) << 8;
         let low_bits: u16 = self.l as u16;
@@ -217,7 +241,6 @@ impl Processor {
         self.conditions.sign = (cur_val >> 7) != 0;
         self.conditions.zero = cur_val == 0;
         self.conditions.parity = self.parity(cur_val, 8);
-        self.conditions.carry = cur_val > 0xff;
     }
 
     fn dcx(&mut self, opcode: u8) {
@@ -235,84 +258,132 @@ impl Processor {
     fn add(&mut self, opcode: u8) {
         let reg_num: u8 = opcode & 0b111;
         let answer: u16 = (self.a as u16) + (*self.get_register(reg_num) as u16);
-        self.conditions.sign = (answer & 0x80) != 0;
-        self.conditions.zero = (answer & 0xff) == 0;
-        self.conditions.parity = self.parity(answer & 0xff, 8);
-        self.conditions.carry = answer > 0xff;
+        self.set_add_flags(answer);
         self.a = (answer << 8 >> 8) as u8;
+    }
+
+    fn adi(&mut self) {
+        let answer: u16 = (self.a as u16) + (self.memory[self.pc as usize] as u16);
+        self.pc += 1; 
+        self.set_add_flags(answer);
+        self.a = (answer << 8 >> 8) as u8;
+
     }
 
     fn adc(&mut self, opcode: u8) {
         let reg_num: u8 = opcode & 0b111;
         let answer: u16 = (self.a as u16) + (*self.get_register(reg_num) as u16) + (self.conditions.carry as u16);
 
-        self.conditions.sign = (answer & 0x80) != 0;
-        self.conditions.zero = (answer & 0xff) == 0;
-        self.conditions.parity = self.parity(answer & 0xff, 8);
-        self.conditions.carry = answer > 0xff;
+        self.set_add_flags(answer);
         self.a = (answer & 0xff) as u8;
+    }
+
+    fn aci(&mut self) {
+        let answer: u16 = (self.a as u16) + (self.memory[self.pc as usize] as u16) + (self.conditions.carry as u16);
+        self.pc += 1; 
+        self.set_add_flags(answer);
+        self.a = (answer << 8 >> 8) as u8;
+
     }
 
     fn sub(&mut self, opcode: u8) {
         let reg_num: u8 = opcode & 0b111;
-        let minuend = *self.get_register(reg_num);
-        if self.a > minuend {
-            self.a -= minuend;
-            self.conditions.carry = true;
-        } else {
-            self.a = 0;
-            self.conditions.carry = false;
-        };
-        self.conditions.sign = (self.a & 0x80) != 0;
-        self.conditions.zero = self.a == 0;
-        self.conditions.parity = self.parity(self.a as u16, 8);
+        let minuend: u16 = (self.a as u16) + 0x100;
+        let subtrahend: u16 = *self.get_register(reg_num) as u16;
+        self.subtract_acc(minuend, subtrahend);
     }
 
     fn sbb(&mut self, opcode: u8) {
         let reg_num: u8 = opcode & 0b111;
-        let minuend = *self.get_register(reg_num);
-        if self.a > (minuend + self.conditions.carry as u8) {
-            self.a -= minuend + self.conditions.carry as u8;
-            self.conditions.carry = true;
-        } else {
-            self.a = 0;
-            self.conditions.carry = false;
-        };
-        self.conditions.sign = (self.a & 0x80) != 0;
-        self.conditions.zero = self.a == 0;
-        self.conditions.parity = self.parity(self.a as u16, 8);
+        let minuend: u16 = (self.a as u16) + 0x100;
+        let subtrahend = (*self.get_register(reg_num) as u16) + (self.conditions.carry as u16);
+        self.subtract_acc(minuend, subtrahend);
+    }
+
+    fn sui(&mut self) {
+        let minuend: u16 = (self.a as u16) + 0x100;
+        let subtrahend: u16 = self.memory[self.pc as usize] as u16;
+        self.pc += 1;
+        self.subtract_acc(minuend, subtrahend);
+    }
+
+    fn sbi(&mut self) {
+        let minuend: u16 = (self.a as u16) + 0x100;
+        let subtrahend = (self.memory[self.pc as usize] as u16) + (self.conditions.carry as u16);
+        self.pc += 1;
+        self.subtract_acc(minuend, subtrahend);
     }
     
     fn ana(&mut self, opcode: u8) {
-        let reg_num: u8 = opcode & 0b111;
-        self.a = self.a & *self.get_register(reg_num);
-        self.conditions.carry = false;
-        self.conditions.sign = (self.a & 0x80) != 0;
-        self.conditions.zero = self.a == 0;
-        self.conditions.parity = self.parity(self.a as u16, 8);
+        let f = |left: u8, right: u8| -> u8 {
+            return left & right;
+        };
+        let right = *self.get_register(opcode & 0b111);
+        self.logical_op(self.a, right, f)
     }
 
     fn xra(&mut self, opcode: u8) {
-        let reg_num: u8 = opcode & 0b111;
-        self.a = self.a ^ *self.get_register(reg_num);
-        self.conditions.carry = false;
-        self.conditions.sign = (self.a & 0x80) != 0;
-        self.conditions.zero = self.a == 0;
-        self.conditions.parity = self.parity(self.a as u16, 8);
+        let f = |left: u8, right: u8| -> u8 {
+            return left ^ right;
+        };
+        let right = *self.get_register(opcode & 0b111);
+        self.logical_op(self.a, right, f)
     }
 
     fn ora(&mut self, opcode: u8) {
-        let reg_num: u8 = opcode & 0b111;
-        self.a = self.a | *self.get_register(reg_num);
-        self.conditions.carry = false;
-        self.conditions.sign = (self.a & 0x80) != 0;
-        self.conditions.zero = self.a == 0;
-        self.conditions.parity = self.parity(self.a as u16, 8);
+        let f = |left: u8, right: u8| -> u8 {
+            return left | right;
+        };
+        let right = *self.get_register(opcode & 0b111);
+        self.logical_op(self.a, right, f)
     }
 
     fn cmp(&mut self, opcode: u8) {
         let reg_num: u8 = opcode & 0b111;
         let minuend = *self.get_register(reg_num);
+        let mut acc = self.a;
+        if acc > minuend {
+            acc -= minuend;
+            self.conditions.carry = true;
+        } else {
+            acc = 0;
+            self.conditions.carry = false;
+        };
+        self.conditions.sign = (acc & 0x80) != 0;
+        self.conditions.zero = acc == 0;
+        self.conditions.parity = self.parity(acc as u16, 8);
+    }
+
+    fn ani(&mut self) {
+        let f = |left: u8, right: u8| -> u8 {
+            return left & right;
+        };
+        let right = self.memory[self.pc as usize];
+        self.pc += 1;
+        self.logical_op(self.a, right, f)
+    }
+
+    fn ori(&mut self){
+        let f = |left: u8, right: u8| -> u8 {
+            return left | right;
+        };
+        let right = self.memory[self.pc as usize];
+        self.pc += 1;
+        self.logical_op(self.a, right, f)
+    }
+
+    fn xri(&mut self){
+        let f = |left: u8, right: u8| -> u8 {
+            return left ^ right;
+        };
+        let right = self.memory[self.pc as usize];
+        self.pc += 1;
+        self.logical_op(self.a, right, f)
+    }
+
+    fn cpi(&mut self){
+        let minuend = self.memory[self.pc as usize];
+        self.pc += 1;
         let mut acc = self.a;
         if acc > minuend {
             acc -= minuend;
@@ -339,6 +410,38 @@ impl Processor {
         let addr = high_byte | low_byte;
 
         self.pc = addr;
+    }
+
+    fn rotate_acc(&mut self, opcode: u8) {
+        let high_bit: u8 = self.a >> 7;
+        let low_bit: u8 = self.a & 0xfe;
+        let instr: u8 = opcode >> 3;
+        let acc: u8 = self.a;
+        self.a = match instr {
+            0 => { || -> u8 {
+                self.conditions.carry = high_bit == 1;
+                return (acc << 1) + high_bit
+            }()},
+            1 => {
+                || -> u8 {
+                    self.conditions.carry = low_bit == 1;
+                    return (acc >> 1) + (low_bit << 7)
+                }()
+            },
+            2 => {|| -> u8 {
+                    let res = (acc << 1) + (self.conditions.carry as u8);
+                    self.conditions.carry = high_bit == 1;
+                    return res;
+                }()
+            },
+            _ => {|| -> u8 {
+                    let res = (acc >> 1) + ((self.conditions.carry as u8) << 7);
+                    self.conditions.carry = low_bit == 1;
+                    return res;
+                }()
+                
+            }
+        }
     }
 
     fn match_conds(&mut self, opcode: u8) -> bool {
@@ -385,20 +488,18 @@ impl Processor {
             0x04 | 0x0c |0x14 | 0x1c | 0x24 | 0x2c | 0x34 | 0x3c => self.inr(opcode),
             0x05 | 0x0d |0x15 | 0x1d | 0x25 | 0x2d | 0x35 | 0x3d => self.dcr(opcode),
             0x06 | 0x0e | 0x16 | 0x1e | 0x26 | 0x2e | 0x36 | 0x3e => self.mvi(opcode),
-            0x07 => self.unimplemented_instruction(),
+            0x07 | 0x0f | 0x17 | 0x1f => self.rotate_acc(opcode),
             0x09 |0x19 | 0x29 | 0x39 => self.unimplemented_instruction(), // DAD
             0x0a | 0x1a => self.unimplemented_instruction(), // LDAX
             0x0b | 0x1b | 0x2b | 0x3b => self.dcx(opcode),
-            0x0f => self.unimplemented_instruction(),
-            0x1f => self.unimplemented_instruction(),
             0x22 => self.unimplemented_instruction(),
             0x27 => self.unimplemented_instruction(),
             0x2a => self.unimplemented_instruction(),
             0x2f => self.unimplemented_instruction(),
             0x32 => self.unimplemented_instruction(),
-            0x37 => self.unimplemented_instruction(),
+            0x37 => self.conditions.carry = true,
             0x3a => self.unimplemented_instruction(),
-            0x3f => self.unimplemented_instruction(),
+            0x3f => self.conditions.carry = !self.conditions.carry,
             0x40..=0x75 |0x78..=0x7f => self.mov(opcode),
             0x76 => self.halt(),
             0x77 => self.unimplemented_instruction(),
@@ -422,37 +523,37 @@ impl Processor {
             0xd5 => self.unimplemented_instruction(),
             0xe5 => self.unimplemented_instruction(),
             0xf5 => self.unimplemented_instruction(),
-            0xc6 => self.unimplemented_instruction(),
+            0xc6 => self.adi(),
             0xc7 => self.unimplemented_instruction(),
             0xc9 => self.ret(),
             0xcd => self.call(),
-            0xce => self.unimplemented_instruction(),
+            0xce => self.aci(),
             0xcf => self.unimplemented_instruction(),
             0xd3 => self.unimplemented_instruction(),
-            0xd6 => self.unimplemented_instruction(),
+            0xd6 => self.sui(),
             0xd7 => self.unimplemented_instruction(),
             0xdb => self.unimplemented_instruction(),
-            0xde => self.unimplemented_instruction(),
+            0xde => self.sbi(),
             0xdf => self.unimplemented_instruction(),
             0xe3 => self.unimplemented_instruction(),
-            0xe6 => self.unimplemented_instruction(),
+            0xe6 => self.ani(),
             0xe7 => self.unimplemented_instruction(),
             0xe9 => self.pchl(),
             0xeb => self.unimplemented_instruction(),
-            0xee => self.unimplemented_instruction(),
+            0xee => self.xri(),
             0xef => self.unimplemented_instruction(),
             0xf0 => self.unimplemented_instruction(),
             0xf2 => self.unimplemented_instruction(),
             0xf3 => self.unimplemented_instruction(),
             0xf4 => self.unimplemented_instruction(),
-            0xf6 => self.unimplemented_instruction(),
+            0xf6 => self.ori(),
             0xf7 => self.unimplemented_instruction(),
             0xf8 => self.unimplemented_instruction(),
             0xf9 => self.unimplemented_instruction(),
             0xfa => self.unimplemented_instruction(),
             0xfb => self.unimplemented_instruction(),
             0xfc => self.unimplemented_instruction(),
-            0xfe => self.unimplemented_instruction(),
+            0xfe => self.cpi(),
             0xff => self.unimplemented_instruction(),
             _ => self.unimplemented_instruction(),
         }
