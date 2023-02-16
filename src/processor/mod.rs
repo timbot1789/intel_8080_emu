@@ -151,8 +151,8 @@ impl Processor {
         println!("lxi {:x}, {:x}{:x}", reg_pair, self.memory[(self.pc) as usize], self.memory[(self.pc + 1) as usize]);
         self.set_register_pair(
             reg_pair, 
-            self.memory[(self.pc + 1) as usize], 
-            self.memory[(self.pc + 2) as usize]
+            self.memory[(self.pc) as usize], 
+            self.memory[(self.pc + 1) as usize]
         );
         self.pc += 2;
     }
@@ -334,8 +334,8 @@ impl Processor {
 
     fn jmp(&mut self) {
         let pc = self.pc as usize;
-        let low_byte: u16 = self.memory[pc + 1] as u16;
-        let high_byte: u16 = (self.memory[pc + 2] as u16) << 8 ;
+        let low_byte: u16 = self.memory[pc] as u16;
+        let high_byte: u16 = (self.memory[pc + 1] as u16) << 8 ;
         let addr = high_byte | low_byte;
 
         self.pc = addr;
@@ -361,7 +361,7 @@ impl Processor {
     fn call(&mut self) {
         let sp: usize = self.sp as usize;
         let ret: u16 = self.pc + 2;
-        let low_byte: u8 = (ret & 0xff00) as u8;
+        let low_byte: u8 = (ret & 0xff) as u8;
         let high_byte: u8 = (ret >> 8) as u8 ;
         self.memory[sp - 1] = high_byte;
         self.memory[sp - 2] = low_byte;
@@ -508,7 +508,15 @@ mod tests {
         assert_eq!(processor.a, 0xfb);
         assert!(processor.conditions.sign);
         assert!(processor.conditions.carry);
+    }
 
+    #[test]
+    fn test_call(){
+        let mut processor: Processor = make_processor();
+        processor.run_program("tests/call_test.bin");
+
+        assert_eq!(processor.sp, 0x53);
+        assert_eq!(processor.pc, 0xc);
     }
 
 }
