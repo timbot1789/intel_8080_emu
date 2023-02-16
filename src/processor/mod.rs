@@ -142,7 +142,10 @@ impl Processor {
         *self.get_register(reg) = value;
     }
 
-    fn set_register_pair(&mut self, reg_pair: u8, low_byte: u8, high_byte: u8) {
+    fn set_register_pair(&mut self, reg_pair: u8, val: u16) {
+
+        let high_byte: u8 = (val >> 8) as u8;
+        let low_byte: u8 = (val & 0xff) as u8;
 
         match reg_pair {
             0 => (|| {
@@ -173,11 +176,14 @@ impl Processor {
 
     fn lxi(&mut self, opcode: u8) {
         let reg_pair = opcode >> 4;
-        println!("lxi {:x}, {:x}{:x}", reg_pair, self.memory[(self.pc) as usize], self.memory[(self.pc + 1) as usize]);
+        let low_byte: u16 = self.memory[(self.pc) as usize] as u16;
+        let high_byte: u16 = self.memory[(self.pc + 1) as usize] as u16;
+        println!("lxi {:x}, {:x}{:x}", reg_pair, low_byte, high_byte);
+
+        let val: u16 = (high_byte << 8) | low_byte;
         self.set_register_pair(
             reg_pair, 
-            self.memory[(self.pc) as usize], 
-            self.memory[(self.pc + 1) as usize]
+            val 
         );
         self.pc += 2;
     }
@@ -220,9 +226,7 @@ impl Processor {
     fn inx(&mut self, opcode: u8) {
         let reg_pair = (opcode >> 4) & 0b1100;
         let pair_val = self.get_register_pair_value(reg_pair) + 1;
-        let low_byte: u8 = (pair_val >> 8) as u8;
-        let high_byte: u8 = (pair_val & 0xff) as u8;
-        self.set_register_pair(reg_pair, low_byte, high_byte);
+        self.set_register_pair(reg_pair, pair_val);
         self.conditions.sign = (pair_val >> 15) != 0;
         self.conditions.zero = pair_val == 0;
         self.conditions.parity = self.parity(pair_val, 16);
@@ -248,9 +252,7 @@ impl Processor {
         let reg_pair = (opcode >> 4) & 0b1100;
         let mut pair_val = self.get_register_pair_value(reg_pair);
         pair_val -= 1;
-        let low_byte: u8 = (pair_val >> 8) as u8;
-        let high_byte: u8 = (pair_val & 0xff) as u8;
-        self.set_register_pair(reg_pair, low_byte, high_byte);
+        self.set_register_pair(reg_pair, pair_val);
         self.conditions.sign = (pair_val >> 15) != 0;
         self.conditions.zero = pair_val == 0;
         self.conditions.parity = self.parity(pair_val, 16);
@@ -321,9 +323,7 @@ impl Processor {
         let sum: u32 = reg_pair + hl_val;
         self.conditions.carry = sum & 0xffff0000 > 0;
         let sum_cast: u16 = (sum & 0x0000ffff) as u16;
-        let low_byte: u8 = (sum_cast >> 8) as u8;
-        let high_byte: u8 = (sum_cast & 0xff) as u8;
-        self.set_register_pair(2, low_byte, high_byte);
+        self.set_register_pair(2, sum_cast);
     }
     
     fn ana(&mut self, opcode: u8) {
@@ -382,6 +382,13 @@ impl Processor {
         let right = self.memory[self.pc as usize];
         self.pc += 1;
         self.logical_op(self.a, right, f)
+    }
+
+    fn xchg(&mut self) {
+        let de = self.get_register_pair_value(1);
+        let hl = self.get_register_pair_value(2);
+        self.set_register_pair(1, hl);
+        self.set_register_pair(2, de);
     }
 
     fn xri(&mut self){
@@ -551,7 +558,7 @@ impl Processor {
             0xe6 => self.ani(),
             0xe7 => self.unimplemented_instruction(),
             0xe9 => self.pchl(),
-            0xeb => self.unimplemented_instruction(),
+            0xeb => self.xchg(),
             0xee => self.xri(),
             0xef => self.unimplemented_instruction(),
             0xf0 => self.unimplemented_instruction(),
