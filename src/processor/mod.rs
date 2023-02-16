@@ -467,3 +467,23 @@ impl Processor {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_add() {
+        let mut processor: Processor = make_processor();
+        processor.run_program("tests/inr_test.bin");
+
+        assert_eq!(processor.b, 2);
+        assert_eq!(processor.c, 3);
+        assert_eq!(processor.d, 4);
+        assert_eq!(processor.e, 5);
+        assert_eq!(processor.h, 0x21);
+        assert_eq!(processor.l, 0x21);
+        assert_eq!(processor.memory[0x2121], 1);
+    }
+
+}
+
