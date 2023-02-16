@@ -91,6 +91,41 @@ impl Processor {
         return high_bits | low_bits;
     }
 
+    fn split_bytes(&mut self, val: u16) -> (u8, u8) {
+        let high_byte: u8 = (val >> 8) as u8;
+        let low_byte: u8 = (val & 0xff) as u8;
+
+        return (high_byte, low_byte);
+    }
+
+    fn merge_bytes(&mut self, high_byte: u8, low_byte: u8) -> u16 {
+        return ((high_byte as u16) << 8)  | low_byte as u16;
+    }
+
+    fn push_to_stack(&mut self, byte: u8) {
+        self.sp -= 1;
+        let sp: usize = self.sp as usize;
+        self.memory[sp] = byte;
+    }
+
+    fn push_addr_to_stack(&mut self, addr: u16) {
+        let bytes = self.split_bytes(addr);
+        self.push_to_stack(bytes.1);
+        self.push_to_stack(bytes.0);
+    }
+
+    fn pop_from_stack(&mut self) -> u8 {
+        let sp = self.sp;
+        self.sp += 1;
+        return self.memory[sp as usize];
+    }
+
+    fn pop_addr_from_stack(&mut self) -> u16 {
+        let high_byte = self.pop_from_stack();
+        let low_byte = self.pop_from_stack();
+        return self.merge_bytes(high_byte, low_byte);
+    }
+
     fn get_register(&mut self, reg: u8) -> &mut u8 {
         let mem_addr = self.get_mem_addr();
         
@@ -176,11 +211,11 @@ impl Processor {
 
     fn lxi(&mut self, opcode: u8) {
         let reg_pair = opcode >> 4;
-        let low_byte: u16 = self.memory[(self.pc) as usize] as u16;
-        let high_byte: u16 = self.memory[(self.pc + 1) as usize] as u16;
+        let low_byte: u8 = self.memory[(self.pc) as usize];
+        let high_byte: u8 = self.memory[(self.pc + 1) as usize];
         println!("lxi {:x}, {:x}{:x}", reg_pair, low_byte, high_byte);
 
-        let val: u16 = (high_byte << 8) | low_byte;
+        let val: u16 = self.merge_bytes(high_byte, low_byte);
         self.set_register_pair(
             reg_pair, 
             val 
@@ -390,6 +425,12 @@ impl Processor {
         self.set_register_pair(1, hl);
         self.set_register_pair(2, de);
     }
+    fn xthl(&mut self) {
+        let hl: u16 = self.get_register_pair_value(2);
+        let mem: u16 = self.pop_addr_from_stack();
+        self.set_register_pair(2, mem);
+        self.push_addr_to_stack(hl);
+    }
 
     fn xri(&mut self){
         let f = |left: u8, right: u8| -> u8 {
@@ -478,22 +519,13 @@ impl Processor {
     }
 
     fn call(&mut self) {
-        let sp: usize = self.sp as usize;
         let ret: u16 = self.pc + 2;
-        let low_byte: u8 = (ret & 0xff) as u8;
-        let high_byte: u8 = (ret >> 8) as u8 ;
-        self.memory[sp - 1] = high_byte;
-        self.memory[sp - 2] = low_byte;
-        self.sp -= 2;
+        self.push_addr_to_stack(ret);
         self.jmp();
     }
 
     fn ret(&mut self) {
-        let sp: usize = self.sp as usize;
-        let low_byte: u16 = self.memory[sp] as u16;
-        let high_byte: u16 = (self.memory[sp + 1] as u16) << 8 ;
-        self.sp += 2;
-        self.pc = high_byte | low_byte;
+        self.pc = self.pop_addr_from_stack();
     }
 
     fn run_one_command(&mut self) {
@@ -554,7 +586,7 @@ impl Processor {
             0xdb => self.unimplemented_instruction(),
             0xde => self.sbi(),
             0xdf => self.unimplemented_instruction(),
-            0xe3 => self.unimplemented_instruction(),
+            0xe3 => self.xthl(),
             0xe6 => self.ani(),
             0xe7 => self.unimplemented_instruction(),
             0xe9 => self.pchl(),
