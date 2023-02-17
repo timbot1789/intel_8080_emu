@@ -4,7 +4,7 @@ use std::fs;
 #[derive(Default)]
 struct ConditionBits {
     carry: bool, // set if value is carried out of the highest order bit
-    aux_carry: bool, // Not used for this project
+    aux_carry: bool, // NOT IMPLEMENTED: Not used for this project
     sign: bool, // set to 1 when bit 7 is set
     zero: bool, // set when result is equal to 0
     parity: bool // set when result is even
@@ -418,6 +418,13 @@ impl Processor {
         self.subtract_acc(minuend, subtrahend);
     }
 
+    fn cmp(&mut self, opcode: u8) {
+        let reg_num: u8 = opcode & 0b111;
+        let minuend: u16 = self.a as u16;
+        let subtrahend: u16 = *self.get_register(reg_num) as u16;
+        self.subtract_acc(minuend, subtrahend);
+    }
+
     fn dad(&mut self, opcode: u8) {
         let reg_pair: u32 = self.get_register_pair_value(opcode >> 4) as u32;
         let hl_val: u32 = self.get_register_pair_value(2) as u32;
@@ -449,22 +456,6 @@ impl Processor {
         };
         let right = *self.get_register(opcode & 0b111);
         self.logical_op(self.a, right, f)
-    }
-
-    fn cmp(&mut self, opcode: u8) {
-        let reg_num: u8 = opcode & 0b111;
-        let minuend = *self.get_register(reg_num);
-        let mut acc = self.a;
-        if acc > minuend {
-            acc -= minuend;
-            self.conditions.carry = true;
-        } else {
-            acc = 0;
-            self.conditions.carry = false;
-        };
-        self.conditions.sign = (acc & 0x80) != 0;
-        self.conditions.zero = acc == 0;
-        self.conditions.parity = self.parity(acc as u16, 8);
     }
 
     fn ani(&mut self) {
