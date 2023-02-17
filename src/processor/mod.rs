@@ -167,16 +167,16 @@ impl Processor {
         
         match reg_pair {
             0 => (|| {
-                    low_byte = self.b as u16;
-                    high_byte = self.c as u16;
+                    high_byte = self.b as u16;
+                    low_byte = self.c as u16;
                 })(),
             1 => (|| {
-                    low_byte = self.d as u16;
-                    high_byte = self.e as u16;
+                    high_byte = self.d as u16;
+                    low_byte = self.e as u16;
                 })(),
             2 => (|| {
-                    low_byte = self.h as u16;
-                    high_byte = self.l as u16;
+                    high_byte = self.h as u16;
+                    low_byte = self.l as u16;
                 })(),
             3 => (|| {
                     sp_addr = self.sp;
@@ -319,7 +319,7 @@ impl Processor {
     }
 
     fn inx(&mut self, opcode: u8) {
-        let reg_pair = (opcode >> 4) & 0b1100;
+        let reg_pair = opcode >> 4;
         let pair_val = self.get_register_pair_value(reg_pair) + 1;
         self.set_register_pair(reg_pair, pair_val);
         self.conditions.sign = (pair_val >> 15) != 0;
@@ -737,6 +737,32 @@ mod tests {
         assert_eq!(processor.memory[0x2019], 0x2);
         assert_eq!(processor.memory[0x1918], 0x4);
     }
+    #[test]
+    fn test_jump() {
+        let mut processor: Processor = make_processor();
+        processor.run_program("tests/jump.bin");
+        assert_eq!(processor.a, 0x0);
+        assert_eq!(processor.c, 0x14);
+        assert_eq!(processor.pc, 0xc);
+        assert!(processor.conditions.zero);
+        assert!(processor.conditions.parity);
+    }
+
+    #[test]
+    fn test_mem_cpy() {
+        let mut processor: Processor = make_processor();
+        processor.run_program("tests/memcpy.bin");
+
+        assert_eq!(processor.e, 0x16);
+        assert_eq!(processor.pc, 0x11);
+        assert_eq!(processor.l, 0x1b);
+        assert_eq!(processor.sp, 0x9fff);
+        assert!(processor.conditions.zero);
+        assert!(processor.conditions.parity);
+        assert!(!processor.conditions.carry);
+        assert!(!processor.conditions.sign);
+        assert_eq!(processor.memory[0x17], 0x22);
+    }
 
     #[test]
     fn test_capitalize() {
@@ -744,13 +770,13 @@ mod tests {
         processor.run_program("tests/capitalize.bin");
 
         assert_eq!(processor.b, 0x0);
-        assert_eq!(processor.pc, 0x9);
-        assert_eq!(processor.l, 31);
+        assert_eq!(processor.pc, 0xc);
+        assert_eq!(processor.l, 0x34);
         assert!(processor.conditions.zero);
         assert!(processor.conditions.parity);
         assert!(!processor.conditions.carry);
         assert!(!processor.conditions.sign);
-        assert_eq!(processor.memory[0x30], 0x53);
+        assert_eq!(processor.memory[0x32], 0x44);
     }
 }
 
