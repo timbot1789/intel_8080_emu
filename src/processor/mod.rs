@@ -87,13 +87,15 @@ impl Processor {
         self.conditions.carry = answer > 0xff;
     }
 
-    fn subtract_acc(&mut self, minuend: u16, subtrahend: u16) {
-        let difference: u16 = minuend - subtrahend;
-        self.a = ((minuend - subtrahend) & 0xff) as u8;
-        self.conditions.carry = difference >= 0x100;
-        self.conditions.sign = (self.a & 0x80) != 0;
-        self.conditions.zero = self.a == 0;
-        self.conditions.parity = self.parity(self.a as u16, 8);
+    fn subtract_acc(&mut self, minuend: u16, subtrahend: u16) -> u8 {
+        let min = minuend + 0x100;
+        let difference: u16 = min - subtrahend;
+        let ret_diff = (difference & 0xff) as u8;
+        self.conditions.carry = subtrahend > minuend;
+        self.conditions.sign = (ret_diff & 0x80) != 0;
+        self.conditions.zero = ret_diff == 0;
+        self.conditions.parity = self.parity(ret_diff as u16, 8);
+        return ret_diff
     }
 
     fn logical_op(&mut self, left: u8, right: u8, f: fn(u8, u8) -> u8  ){
@@ -386,27 +388,33 @@ impl Processor {
 
     fn sub(&mut self, opcode: u8) {
         let reg_num: u8 = opcode & 0b111;
-        let minuend: u16 = (self.a as u16) + 0x100;
+        let minuend: u16 = self.a as u16;
         let subtrahend: u16 = *self.get_register(reg_num) as u16;
-        self.subtract_acc(minuend, subtrahend);
+        self.a = self.subtract_acc(minuend, subtrahend);
     }
 
     fn sbb(&mut self, opcode: u8) {
         let reg_num: u8 = opcode & 0b111;
-        let minuend: u16 = (self.a as u16) + 0x100;
+        let minuend: u16 = self.a as u16;
         let subtrahend = (*self.get_register(reg_num) as u16) + (self.conditions.carry as u16);
-        self.subtract_acc(minuend, subtrahend);
+        self.a = self.subtract_acc(minuend, subtrahend);
     }
 
     fn sui(&mut self) {
-        let minuend: u16 = (self.a as u16) + 0x100;
+        let minuend: u16 = self.a as u16;
         let subtrahend: u16 = self.get_byte() as u16;
-        self.subtract_acc(minuend, subtrahend);
+        self.a =self.subtract_acc(minuend, subtrahend);
     }
 
     fn sbi(&mut self) {
-        let minuend: u16 = (self.a as u16) + 0x100;
+        let minuend: u16 = self.a as u16;
         let subtrahend = (self.get_byte() as u16) + (self.conditions.carry as u16);
+        self.a = self.subtract_acc(minuend, subtrahend);
+    }
+
+    fn cpi(&mut self){
+        let minuend: u16 = self.a as u16;
+        let subtrahend: u16 = self.get_byte() as u16;
         self.subtract_acc(minuend, subtrahend);
     }
 
@@ -494,22 +502,6 @@ impl Processor {
         };
         let right = self.get_byte();
         self.logical_op(self.a, right, f)
-    }
-
-    fn cpi(&mut self){
-        let minuend = self.get_byte();
-
-        let mut acc = self.a;
-        if acc > minuend {
-            acc -= minuend;
-            self.conditions.carry = true;
-        } else {
-            acc = 0;
-            self.conditions.carry = false;
-        };
-        self.conditions.sign = (acc & 0x80) != 0;
-        self.conditions.zero = acc == 0;
-        self.conditions.parity = self.parity(acc as u16, 8);
     }
 
     fn pchl(&mut self) { // Set program counter to address in HL registers
@@ -772,11 +764,11 @@ mod tests {
         assert_eq!(processor.b, 0x0);
         assert_eq!(processor.pc, 0xc);
         assert_eq!(processor.l, 0x34);
+        assert_eq!(processor.memory[0x32], 0x44);
         assert!(processor.conditions.zero);
         assert!(processor.conditions.parity);
         assert!(!processor.conditions.carry);
         assert!(!processor.conditions.sign);
-        assert_eq!(processor.memory[0x32], 0x44);
     }
 }
 
