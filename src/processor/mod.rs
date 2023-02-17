@@ -68,7 +68,6 @@ impl Processor {
     fn initialize_memory(&mut self, path: &str) {
         self.memory.extend_from_slice(&fs::read(path)
         .expect("Should have been able to read the file"));
-        println!("{:#?}", self.memory);
         self.memory.resize_with(0xffff, || {0});
     }
 
@@ -197,6 +196,11 @@ impl Processor {
         *self.get_register(reg) = value;
     }
 
+    fn get_byte(&mut self) -> u8 {
+        self.pc += 1;
+        return self.memory[(self.pc - 1) as usize];
+    }
+
     fn set_register_pair(&mut self, reg_pair: u8, val: u16) {
 
         let high_byte: u8 = (val >> 8) as u8;
@@ -235,53 +239,41 @@ impl Processor {
 
     fn lxi(&mut self, opcode: u8) {
         let reg_pair = opcode >> 4;
-        let low_byte: u8 = self.memory[(self.pc) as usize];
-        let high_byte: u8 = self.memory[(self.pc + 1) as usize];
-        println!("lxi {:x}, {:x}{:x}", reg_pair, low_byte, high_byte);
 
-        let val: u16 = self.merge_bytes(high_byte, low_byte);
+        let val: u16 = self.get_two_bytes();
         self.set_register_pair(
             reg_pair, 
             val 
         );
-        self.pc += 2;
+    }
+
+    fn get_two_bytes(&mut self) -> u16 {
+        let low_byte = self.get_byte();
+        let high_byte = self.get_byte();
+        return self.merge_bytes(high_byte, low_byte);
     }
 
     fn lhld(&mut self) {
-        let pc: usize = self.pc as usize;
-        let low_byte = self.memory[pc];
-        let high_byte = self.memory[pc + 1];
-        self.pc += 2;
-        let addr: usize = self.merge_bytes(high_byte, low_byte) as usize;
+        let addr: usize = self.get_two_bytes() as usize;
         self.l = self.memory[addr];
         self.h = self.memory[addr + 1];
     }
 
     fn shld(&mut self) {
-        let pc: usize = self.pc as usize;
-        let low_byte = self.memory[pc];
-        let high_byte = self.memory[pc + 1];
-        self.pc += 2;
-        let addr: usize = self.merge_bytes(high_byte, low_byte) as usize;
+
+        let addr: usize = self.get_two_bytes() as usize;
         self.memory[addr] = self.l;
         self.memory[addr + 1] = self.h;
     }
 
     fn sta(&mut self) {
-        let pc: usize = self.pc as usize;
-        let low_byte = self.memory[pc];
-        let high_byte = self.memory[pc + 1];
-        self.pc += 2;
-        let addr: usize = self.merge_bytes(high_byte, low_byte) as usize;
+
+        let addr: usize = self.get_two_bytes() as usize;
         self.memory[addr] = self.a;
     }
 
     fn lda(&mut self) {
-        let pc: usize = self.pc as usize;
-        let low_byte = self.memory[pc];
-        let high_byte = self.memory[pc + 1];
-        self.pc += 2;
-        let addr: usize = self.merge_bytes(high_byte, low_byte) as usize;
+        let addr: usize = self.get_two_bytes() as usize;
         self.a = self.memory[addr];
     }
 
@@ -299,14 +291,13 @@ impl Processor {
 
     fn mvi(&mut self, opcode: u8) {
         let reg = opcode >> 3;
-        self.set_register(reg, self.memory[(self.pc) as usize]);
-        self.pc += 1;
+        let byte = self.get_byte();
+        self.set_register(reg, byte);
     }
 
     fn mov(&mut self, opcode: u8) {
         let reg_1: u8 = (opcode << 2) >> 5;
         let reg_2: u8 = opcode & 0b00000111;
-        println!("mov {:x}, {:x}", reg_1, reg_2);
         let val = *self.get_register(reg_2);
         self.set_register(reg_1, val);
     }
@@ -314,14 +305,10 @@ impl Processor {
     fn halt(&mut self) {
         println!("halt");
         self.halt = true;
-        println!("memory location 0x2020: {:04x}", self.memory[0x2020]);
-        println!("memory location 0x2121: {:04x}", self.memory[0x2121]);
-        println!("memory location 0x1f1f: {:04x}", self.memory[0x1f1f]);
     }
 
     fn inr(&mut self, opcode: u8) {
         let reg_code: u8 = opcode >> 3;
-        println!("inr {:x}", reg_code);
 
         let register = self.get_register(reg_code);
         let cur_val: u16 = (*register as u16) + 1;
@@ -374,8 +361,8 @@ impl Processor {
     }
 
     fn adi(&mut self) {
-        let answer: u16 = (self.a as u16) + (self.memory[self.pc as usize] as u16);
-        self.pc += 1; 
+        let immediate = self.get_byte();
+        let answer: u16 = (self.a as u16) + (immediate as u16);
         self.set_add_flags(answer);
         self.a = (answer << 8 >> 8) as u8;
 
@@ -390,8 +377,8 @@ impl Processor {
     }
 
     fn aci(&mut self) {
-        let answer: u16 = (self.a as u16) + (self.memory[self.pc as usize] as u16) + (self.conditions.carry as u16);
-        self.pc += 1; 
+        let imm = self.get_byte();
+        let answer: u16 = (self.a as u16) + (imm as u16) + (self.conditions.carry as u16);
         self.set_add_flags(answer);
         self.a = (answer << 8 >> 8) as u8;
 
@@ -413,15 +400,13 @@ impl Processor {
 
     fn sui(&mut self) {
         let minuend: u16 = (self.a as u16) + 0x100;
-        let subtrahend: u16 = self.memory[self.pc as usize] as u16;
-        self.pc += 1;
+        let subtrahend: u16 = self.get_byte() as u16;
         self.subtract_acc(minuend, subtrahend);
     }
 
     fn sbi(&mut self) {
         let minuend: u16 = (self.a as u16) + 0x100;
-        let subtrahend = (self.memory[self.pc as usize] as u16) + (self.conditions.carry as u16);
-        self.pc += 1;
+        let subtrahend = (self.get_byte() as u16) + (self.conditions.carry as u16);
         self.subtract_acc(minuend, subtrahend);
     }
 
@@ -478,8 +463,7 @@ impl Processor {
         let f = |left: u8, right: u8| -> u8 {
             return left & right;
         };
-        let right = self.memory[self.pc as usize];
-        self.pc += 1;
+        let right = self.get_byte();
         self.logical_op(self.a, right, f)
     }
 
@@ -487,8 +471,7 @@ impl Processor {
         let f = |left: u8, right: u8| -> u8 {
             return left | right;
         };
-        let right = self.memory[self.pc as usize];
-        self.pc += 1;
+        let right = self.get_byte();
         self.logical_op(self.a, right, f)
     }
 
@@ -509,14 +492,13 @@ impl Processor {
         let f = |left: u8, right: u8| -> u8 {
             return left ^ right;
         };
-        let right = self.memory[self.pc as usize];
-        self.pc += 1;
+        let right = self.get_byte();
         self.logical_op(self.a, right, f)
     }
 
     fn cpi(&mut self){
-        let minuend = self.memory[self.pc as usize];
-        self.pc += 1;
+        let minuend = self.get_byte();
+
         let mut acc = self.a;
         if acc > minuend {
             acc -= minuend;
@@ -578,7 +560,8 @@ impl Processor {
     }
 
     fn match_conds(&mut self, opcode: u8) -> bool {
-        return match (opcode >> 3) & 0b00111 {
+        let condition = (opcode >> 3) & 0b00111;
+        return match condition {
             0 => { !self.conditions.zero }, // JNZ
             1 => { self.conditions.zero }, // JZ
             2 => { !self.conditions.carry }, // JNC
@@ -629,8 +612,7 @@ impl Processor {
     }
 
     fn run_one_command(&mut self) {
-        let opcode: u8 = self.memory[self.pc as usize];
-        self.pc += 1;
+        let opcode: u8 = self.get_byte();
         return match opcode {
             0x00 => self.nop(),
             0x01 | 0x11 | 0x21 | 0x31 => self.lxi(opcode),
@@ -661,10 +643,18 @@ impl Processor {
             0xa8..=0xaf => self.xra(opcode), // XRA
             0xb0..=0xb7 => self.ora(opcode), // ORA
             0xb8..=0xbf => self.cmp(opcode), // CMP
-            0xc2 | 0xca | 0xd2 | 0xda | 0xe2 | 0xea => if self.match_conds(opcode) { self.jmp() },
+            0xc2 | 0xca | 0xd2 | 0xda | 0xe2 | 0xea | 0xf2 | 0xfa => if self.match_conds(opcode) {
+                self.jmp()
+            } else {
+                self.pc += 2;
+            },
             0xc3 => self.jmp(),
-            0xc4 | 0xcc | 0xd4 | 0xdc | 0xe4 | 0xec => if self.match_conds(opcode) { self.call() },
-            0xc0 | 0xc8 | 0xd0 | 0xd8 | 0xe0 | 0xe8 => if self.match_conds(opcode) { self.ret() },
+            0xc4 | 0xcc | 0xd4 | 0xdc | 0xe4 | 0xec | 0xf4 | 0xfc => if self.match_conds(opcode) { 
+                self.call()
+            } else {
+                self.pc += 2;
+            },
+            0xc0 | 0xc8 | 0xd0 | 0xd8 | 0xe0 | 0xe8 | 0xf0 | 0xf8 => if self.match_conds(opcode) { self.ret() },
             0xc1 | 0xd1 | 0xe1 | 0xf1 => self.pop(opcode),
             0xc5 | 0xd5 | 0xe5 | 0xf5=> self.push(opcode),
             0xc6 => self.adi(),
@@ -681,16 +671,10 @@ impl Processor {
             0xe9 => self.pchl(),
             0xeb => self.xchg(),
             0xee => self.xri(),
-            0xf0 => self.unimplemented_instruction(), // TODO: RP
-            0xf2 => self.unimplemented_instruction(), // TODO: JP
             0xf3 => self.interrupt_enabled = false,
-            0xf4 => self.unimplemented_instruction(), // TODO: CP
             0xf6 => self.ori(),
-            0xf8 => self.unimplemented_instruction(), // TODO: RM
-            0xf9 => self.unimplemented_instruction(), // TODO: SPHL
-            0xfa => self.unimplemented_instruction(), // TODO: JM
+            0xf9 => self.sp = self.get_register_pair_value(2), // SPHL
             0xfb => self.interrupt_enabled = true,
-            0xfc => self.unimplemented_instruction(), // CM
             0xfe => self.cpi(),
             _ => self.unimplemented_instruction(),
         }
@@ -752,6 +736,21 @@ mod tests {
         assert_eq!(processor.b, 0x4);
         assert_eq!(processor.memory[0x2019], 0x2);
         assert_eq!(processor.memory[0x1918], 0x4);
+    }
+
+    #[test]
+    fn test_capitalize() {
+        let mut processor: Processor = make_processor();
+        processor.run_program("tests/capitalize.bin");
+
+        assert_eq!(processor.b, 0x0);
+        assert_eq!(processor.pc, 0x9);
+        assert_eq!(processor.l, 31);
+        assert!(processor.conditions.zero);
+        assert!(processor.conditions.parity);
+        assert!(!processor.conditions.carry);
+        assert!(!processor.conditions.sign);
+        assert_eq!(processor.memory[0x30], 0x53);
     }
 }
 
